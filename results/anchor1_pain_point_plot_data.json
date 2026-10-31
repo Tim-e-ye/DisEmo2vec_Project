@@ -1,0 +1,60 @@
+{
+  "figure1_cross_script_drop": {
+    "protocol": "5-Fold Leave-One-Session-Out Speaker-Independent Cross-Script",
+    "speaker_leakage_zero_verified": true,
+    "in_domain_impro_to_impro_UA": 98.04,
+    "cross_script_to_impro_UA": 9.88,
+    "script_to_impro_drop_UA": 88.15,
+    "in_domain_script_to_script_UA": 99.23,
+    "cross_impro_to_script_UA": 7.86,
+    "impro_to_script_drop_UA": 91.37,
+    "average_cross_script_drop_UA": 89.76
+  },
+  "figure2_duration_dilution_buckets": {
+    "buckets": {
+      "short (<1.5s)": {
+        "UA": 69.05,
+        "WA": 85.0,
+        "WF1": 84.79,
+        "Macro_F1": 68.64
+      },
+      "medium (1.5~3.5s)": {
+        "UA": 56.52,
+        "WA": 75.0,
+        "WF1": 70.42,
+        "Macro_F1": 50.65
+      },
+      "long (>3.5s)": {
+        "UA": 39.54,
+        "WA": 42.5,
+        "WF1": 46.46,
+        "Macro_F1": 32.48
+      }
+    },
+    "short_UA": 69.05,
+    "medium_UA": 56.52,
+    "long_UA": 39.54,
+    "long_minus_short_delta_UA": -29.51,
+    "degradation_slope_per_bucket": -14.76
+  },
+  "table9_dual_degradation": {
+    "metric_3_2A_pretrain_utt_only_survival": {
+      "official_table9_collapsed_ref_WA": 28.96,
+      "measured_WA_mean": 24.4,
+      "measured_UA_mean": 24.4,
+      "survival_gain_vs_28_96": -4.56,
+      "collapse_resolved": false
+    },
+    "metric_4_2B_downstream_single_utt_probe": {
+      "official_table9_utt_only_ref_WA": 62.77,
+      "official_table9_frm_only_ref_WA": 71.79,
+      "official_table9_concat_ref_WA": 71.6,
+      "measured_single_utt_WA": 82.8,
+      "measured_single_utt_UA": 82.97,
+      "measured_single_frm_WA": 98.4,
+      "measured_concat_utt_frm_WA": 99.2,
+      "delta_concat_vs_frm_WA": 0.8,
+      "positive_concat_synergy": true
+    }
+  }
+}

@@ -1,0 +1,62 @@
+# Python & PyTorch
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Checkpoints, Weights & Large Binary Artifacts
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.onnx
+*.h5
+!manifests/sample_phoneme_probe_labels.pt
+
+# Audio & Datasets (stored in /root/autodl-tmp/datasets on AutoDL)
+datasets/
+data/
+*.wav
+*.flac
+*.mp3
+*.mp4
+*.tar
+*.tar.gz
+*.zip
+
+# Large TSVs (keep lightweight JSON/sample metadata if needed)
+manifests/train_89h.tsv
+manifests/phoneme_probe_labels.pt
+manifests/sponge_targets_89h_k500.pt
+
+# Experiment Logs & Temporary Outputs
+wandb/
+outputs/
+multirun/
+lightning_logs/
+tensorboard_logs/
+results/tmp_*
+*.log
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,84 @@
+# ==============================================================================
+# DisEmo2vec Wind-Tunnel & Pluggable Hammer Configuration (V2.1)
+# ==============================================================================
+
+project:
+  name: "DisEmo2vec"
+  blueprint_version: "V2.1_FIXED_NAILS_TBD_HAMMERS"
+  seed: 42
+
+paths:
+  data_root: "/root/autodl-tmp/datasets"
+  ckpt_root: "/root/autodl-tmp/checkpoints"
+  manifest_dir: "manifests"
+  train_manifest: "manifests/train_89h.tsv"
+  iemocap_meta: "manifests/iemocap_5fold_meta.json"
+  meld_meta: "manifests/meld_eval_meta.json"
+  phoneme_probe_labels: "manifests/phoneme_probe_labels.pt"
+  sponge_targets: "manifests/sponge_targets_89h_k500.pt"
+  results_dir: "results"
+
+pretraining:
+  init_backbone: "facebook/data2vec-audio-base-960h"
+  sample_rate: 16000
+  stage_a_epochs: 25
+  stage_b_epochs: 100
+  learning_rate: 7.5e-5
+  mask_prob: 0.5
+  mask_length: 5
+  embed_dim: 768
+  num_chunk_tokens: 10
+  loss_weights:
+    frm_weight: 1.0
+    utt_weight: 1.0
+    sponge_weight: 0.5
+    dis_weight: 0.1
+
+# ------------------------------------------------------------------------------
+# Phase II: Pluggable Literature Hammer Slots ([TBD-Hammer-Slots: H1 / H2 / H3])
+# Default mode is "tbd_passthrough" (or "baseline") until literature cards are
+# dispatched by 0-Arch for 25-Epoch agile wind-tunnel testing.
+# ------------------------------------------------------------------------------
+hammer_slots:
+  H1_view_transform:
+    status: "[TBD]"
+    active_card: "tbd_passthrough"   # Options: "tbd_passthrough" | "v0_prosody_preserving_vtlp" | <custom_card_id>
+    params:
+      perturb_prob: 0.5
+      beta_min: 0.85
+      beta_max: 1.15
+      enforce_f0_energy_invariance: true
+
+  H2_disentangler:
+    status: "[TBD]"
+    active_card: "tbd_passthrough"   # Options: "tbd_passthrough" | "v0_chunk_sponge_clean_proj" | <custom_card_id>
+    params:
+      num_emo_tokens: 5
+      num_cont_tokens: 5
+      num_phoneme_clusters: 500
+      use_teacher_clean_projection: true
+      use_max_entropy_uniform_kl: true
+
+  H3_temporal_aggregator:
+    status: "[TBD]"
+    active_card: "tbd_passthrough"   # Options: "tbd_passthrough" | "v0_voiced_bg_deviation_pooling" | <custom_card_id>
+    params:
+      temperature_tau_s: 0.5
+      voiced_energy_threshold: -0.5
+
+# ------------------------------------------------------------------------------
+# Phase I: Locked 8-Metric Reviewer-Proof Evaluation Protocol
+# ------------------------------------------------------------------------------
+evaluation:
+  freeze_backbone: true
+  linear_probe_params_budget_m: 0.20
+  embed_dim: 768
+  iemocap_num_folds: 5
+  meld_seeds: [42, 43, 44, 45, 46]
+  table9_baselines:
+    utt_only_pretrain_wa_ref: 28.96
+    downstream_utt_only_wa_ref: 62.77
+    downstream_frm_only_wa_ref: 71.79
+    downstream_utt_frm_concat_wa_ref: 71.60
+  r2_lossless_threshold: 0.95
+  num_phoneme_clusters: 500
