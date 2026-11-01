@@ -3,18 +3,16 @@
 """
 `models/hammer_modules.py` —— 锤头卡槽总控中心与模型 `forward()` 开关调用层
 ==========================================================================
-结合「分文件管理 3 大卡槽（`models/hammer_slots/`）」与「`forward()` 中 10 行 If-Else 开关调卡槽」：
+严格区分【预训练前向传播（开启梯度 `forward_student_backbone`）】与
+【下游评测特征提取（冻结梯度 `extract_frozen_representations`）】：
 
-1. 具体的候选锤头函数按职责拆放在 `models/hammer_slots/` 文件夹下的 3 个卡槽文件里：
-   - `models/hammer_slots/slot_h1_view.py`        -> 卡槽 H1（输入视角变换，`--view_type`）
-   - `models/hammer_slots/slot_h2_disentangle.py` -> 卡槽 H2（词汇-情感解耦，`--disentangle_type`）
-   - `models/hammer_slots/slot_h3_pooling.py`     -> 卡槽 H3（时序显著性汇聚，`--pooling_type`）
-
-2. 本文件 `hammer_modules.py` 统一汇总导入 H1、H2、H3，并在模型 `forward()` 中只用极简开关：
-   - `--view_type`        : `"original_none"` | `"vtlp_1A"` | `"channel_drop_1B"`
-   - `--disentangle_type` : `"original_single"` | `"clean_proj_2A"` | `"grl_adv_2B"`
-   - `--pooling_type`     : `"original_mean"` | `"salience_3A"` | `"attn_rollout_3B"`
-   实现单变量小步快跑试锤！
+1. 预训练阶段（`forward()`）：
+   调用 `self.forward_student_backbone(student_x)`，确保 Student Transformer 主干与前置 10 个
+   可学习 `chunk_tokens` 全程保持 `requires_grad=True`，绝不加 `with torch.no_grad():`，
+   让 `h2_meta` 中的解耦损失与帧损失顺畅反向传播更新 Student 参数！
+2. 下游评测阶段（`eval/eval_all_8_metrics.py`）：
+   调用 `self.extract_frozen_representations(acoustic_frames)`，内部显式开启 `torch.no_grad()`，
+   冻结主干仅吐出特征上“电子秤”测试。
 """
 
 from __future__ import annotations
@@ -55,9 +53,9 @@ if HAS_TORCH:
 class HammerSwitchConfig:
     """命令行与 YAML 统一使用的 3 个锤头卡槽开关参数。"""
 
-    view_type: str = "original_none"         # H1 开关: original_none | vtlp_1A | channel_drop_1B
+    view_type: str = "original_none"           # H1 开关: original_none | vtlp_1A | channel_drop_1B
     disentangle_type: str = "original_single"  # H2 开关: original_single | clean_proj_2A | grl_adv_2B
-    pooling_type: str = "original_mean"      # H3 开关: original_mean | salience_3A | attn_rollout_3B
+    pooling_type: str = "original_mean"        # H3 开关: original_mean | salience_3A | attn_rollout_3B
     embed_dim: int = 768
     num_chunk_tokens: int = 10
 
@@ -82,7 +80,8 @@ def register_hammer_card(slot_name: str, card_id: str) -> Callable:
 class PluggableDisEmo2vecFrontend(BaseModule):
     """
     带 3 个标准卡槽（H1 / H2 / H3）的 `emotion2vec` 乌龟壳主干：
-    在 `forward()` 中仅用清晰的开关调用 `self.h1_slot`、`self.h3_slot`、`self.h2_slot`！
+    - `forward_student_backbone()`     : 预训练专用（全程保留计算图与 `requires_grad=True`）
+    - `extract_frozen_representations()`: 下游评测专用（`torch.no_grad()` 冻结主干吐特征）
     """
 
     def __init__(
@@ -105,13 +104,60 @@ class PluggableDisEmo2vecFrontend(BaseModule):
         self.num_chunk_tokens = int(self.cfg.num_chunk_tokens)
 
         if HAS_TORCH:
-            self.chunk_tokens = nn.Parameter(torch.randn(1, self.num_chunk_tokens, self.embed_dim) * 0.02)
+            # 10 个前置可学习 Chunk Tokens 与 Student 编码层默认 requires_grad=True
+            self.chunk_tokens = nn.Parameter(
+                torch.randn(1, self.num_chunk_tokens, self.embed_dim) * 0.02,
+                requires_grad=True,
+            )
             self.encoder_proj = nn.Linear(self.embed_dim, self.embed_dim)
         else:
             rng = np.random.default_rng(42)
             self.chunk_tokens_np = (
                 rng.standard_normal((1, self.num_chunk_tokens, self.embed_dim)) * 0.02
             ).astype(np.float32)
+
+    def forward_student_backbone(self, student_x: Any) -> Tuple[Any, Any, Any]:
+        """
+        【预训练专用：全程开启梯度】
+        将前置 10 个可学习 Chunk Tokens 拼接在 `student_x` 前端送入 Student 主干编码，
+        并按 H2 卡槽切分出 `z_utt_emo`（前 5 个 Tokens）与 `z_utt_cont`（后 5 个 Tokens）。
+        注意：此处严禁使用 `with torch.no_grad():`，确保 Loss 能反向传播更新 Student 与 Chunk Tokens！
+        """
+        if HAS_TORCH and isinstance(student_x, torch.Tensor):
+            bsz = student_x.shape[0]
+            chunks = self.chunk_tokens.expand(bsz, -1, -1)
+            concat_seq = torch.cat([chunks, student_x], dim=1)
+            encoded = self.encoder_proj(concat_seq)
+            encoded_chunks = encoded[:, : self.num_chunk_tokens, :]
+            x_frm_emo = encoded[:, self.num_chunk_tokens :, :]
+            z_utt_emo, z_utt_cont = self.h2_slot.split_and_pool_chunks(
+                encoded_chunks, disentangle_type=self.cfg.disentangle_type
+            )
+            return x_frm_emo, z_utt_emo, z_utt_cont
+
+        x_np = to_numpy(student_x)
+        bsz = x_np.shape[0]
+        chunks = np.repeat(self.chunk_tokens_np, bsz, axis=0)
+        z_utt_emo, z_utt_cont = self.h2_slot.split_and_pool_chunks(
+            chunks + x_np[:, : self.num_chunk_tokens, :],
+            disentangle_type=self.cfg.disentangle_type,
+        )
+        return x_np, z_utt_emo, z_utt_cont
+
+    def extract_frozen_representations(self, acoustic_frames: Any) -> Tuple[Any, Any, Any]:
+        """
+        【下游评测专用：彻底冻结主干梯度】
+        仅供 `eval/eval_all_8_metrics.py` 在下游线性探针测试时调用，内部显式包裹 `torch.no_grad()`。
+        """
+        if HAS_TORCH and isinstance(acoustic_frames, torch.Tensor):
+            was_training = self.training
+            self.eval()
+            with torch.no_grad():
+                x_frm_emo, z_utt_emo, z_utt_cont = self.forward_student_backbone(acoustic_frames)
+            if was_training:
+                self.train()
+            return x_frm_emo, z_utt_emo, z_utt_cont
+        return self.forward_student_backbone(acoustic_frames)
 
     def forward(
         self,
@@ -139,8 +185,10 @@ class PluggableDisEmo2vecFrontend(BaseModule):
             pooling_type=self.cfg.pooling_type,
         )
 
-        # 3. [卡槽 H2 开关: --disentangle_type] Student 双分支切分与去词汇解耦损失
-        x_frm_emo, z_utt_emo, z_utt_cont = self.extract_frozen_representations(student_x)
+        # 3. [预训练 Student 主干前向传播 — 全程保留梯度！]
+        x_frm_emo, z_utt_emo, z_utt_cont = self.forward_student_backbone(student_x)
+
+        # 4. [卡槽 H2 开关: --disentangle_type] 计算去词汇解耦损失并反传更新 Student
         h2_meta = self.h2_slot.compute_disentangle_losses(
             z_emo=z_utt_emo,
             z_cont=z_utt_cont,
@@ -159,29 +207,6 @@ class PluggableDisEmo2vecFrontend(BaseModule):
             "h2_meta": h2_meta,
             "h3_meta": h3_meta,
         }
-
-    def extract_frozen_representations(self, acoustic_frames: Any) -> Tuple[Any, Any, Any]:
-        """下游评测冻结主干时唯一调用的特征导出接口。"""
-        if HAS_TORCH and isinstance(acoustic_frames, torch.Tensor):
-            bsz = acoustic_frames.shape[0]
-            chunks = self.chunk_tokens.expand(bsz, -1, -1)
-            concat_seq = torch.cat([chunks, acoustic_frames], dim=1)
-            encoded = self.encoder_proj(concat_seq)
-            encoded_chunks = encoded[:, : self.num_chunk_tokens, :]
-            x_frm_emo = encoded[:, self.num_chunk_tokens :, :]
-            z_utt_emo, z_utt_cont = self.h2_slot.split_and_pool_chunks(
-                encoded_chunks, disentangle_type=self.cfg.disentangle_type
-            )
-            return x_frm_emo, z_utt_emo, z_utt_cont
-
-        x_np = to_numpy(acoustic_frames)
-        bsz = x_np.shape[0]
-        chunks = np.repeat(self.chunk_tokens_np, bsz, axis=0)
-        z_utt_emo, z_utt_cont = self.h2_slot.split_and_pool_chunks(
-            chunks + x_np[:, : self.num_chunk_tokens, :],
-            disentangle_type=self.cfg.disentangle_type,
-        )
-        return x_np, z_utt_emo, z_utt_cont
 
 
 def build_hammer_suite_from_config(cfg: Optional[Dict[str, Any]] = None) -> PluggableDisEmo2vecFrontend:
@@ -250,6 +275,14 @@ def run_hammer_slots_self_test() -> Dict[str, Any]:
     )
     suite_v0.train()
     out_v0 = suite_v0(dummy_frames, dummy_frames, frame_energy=dummy_energy)
+
+    # 若在 PyTorch 环境下，额外验证 backward() 梯度能够真实传导至 chunk_tokens 与 encoder_proj！
+    if HAS_TORCH:
+        suite_v0.zero_grad()
+        loss_h2 = out_v0["h2_meta"]["loss_total_h2"]
+        loss_h2.backward()
+        assert suite_v0.chunk_tokens.grad is not None, "chunk_tokens 梯度断流！"
+        assert torch.norm(suite_v0.chunk_tokens.grad).item() > 0.0, "chunk_tokens 梯度为 0！"
 
     w_v0_np = to_numpy(out_v0["frame_weights"])
     silence_mean_w = float(w_v0_np[:, :10].mean())

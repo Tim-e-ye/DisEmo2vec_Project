@@ -6,10 +6,7 @@
 专门存放“如何把情感表征 z_emo 中的词汇内容剥离干净、且不被 Teacher 目标反向污染”的候选锤头函数。
 - 标准输入：`z_emo` (B, 768), `z_cont` (B, 768), `y_teacher_sal` (B, 768), `p_hubert_target` (B, 500)
 - 标准输出：包含 `loss_utt`, `loss_sponge`, `loss_dis`, `y_teacher_clean` 的字典
-- 审稿人防挑刺红线：
-  1. 100% 零外部人工标签（仅用无监督信号）；
-  2. 克服假解耦（768维单正交漏洞 + Teacher 词汇回流漏洞）；
-  3. 下游推理零额外参数开销。
+  （当输入为 PyTorch Tensor 时，所有 Loss 保持完整计算图可微，支持 `.backward()` 反传更新 Student！）
 """
 
 from __future__ import annotations
@@ -21,7 +18,7 @@ from .slot_base import BaseModule, HAS_TORCH, HammerRedLineViolationError, torch
 
 
 # ==============================================================================
-# 候选锤头函数库（每看一篇新文献，只需在此处新增一个 15~20 行小函数！）
+# 候选锤头函数库（支持 PyTorch Autograd 完整梯度反传 + 本地无 Torch 时 NumPy 兼容）
 # ==============================================================================
 def h2_original_single(
     z_emo: Any,
@@ -30,19 +27,35 @@ def h2_original_single(
     p_hubert_target: Optional[Any] = None,
     **kwargs: Any,
 ) -> Dict[str, Any]:
-    """[原版基线 / 关闭 H2]：单分支直接 MSE 拟合 Teacher 全局目标，无内容海绵与正交净水。"""
+    """[原版基线 / 关闭 H2]：单分支直接 MSE 拟合 Teacher 全局目标（保持 z_emo 梯度反传）。"""
     if HAS_TORCH and isinstance(z_emo, torch.Tensor):
-        l_utt = float(F.mse_loss(z_emo, y_teacher_sal).detach().item())
-    else:
-        l_utt = float(np.mean((to_numpy(z_emo) - to_numpy(y_teacher_sal)) ** 2))
+        # Teacher 目标 stop-gradient，仅向 Student 的 z_emo 反传梯度
+        y_target_sg = y_teacher_sal.detach()
+        l_utt = F.mse_loss(z_emo, y_target_sg)
+        zero = torch.zeros((), device=z_emo.device, dtype=z_emo.dtype, requires_grad=False)
+        return {
+            "slot": "H2",
+            "disentangle_type": "original_single",
+            "status": "[TBD]",
+            "loss_utt": l_utt,
+            "loss_sponge": zero,
+            "loss_dis": zero,
+            "loss_total_h2": l_utt,
+            "y_teacher_clean": y_target_sg,
+            "uses_external_human_labels": False,
+            "downstream_extra_params": 0,
+            "teacher_backflow_blocked": False,
+        }
 
+    l_utt_np = float(np.mean((to_numpy(z_emo) - to_numpy(y_teacher_sal)) ** 2))
     return {
         "slot": "H2",
         "disentangle_type": "original_single",
         "status": "[TBD]",
-        "loss_utt": l_utt,
+        "loss_utt": l_utt_np,
         "loss_sponge": 0.0,
         "loss_dis": 0.0,
+        "loss_total_h2": l_utt_np,
         "y_teacher_clean": y_teacher_sal,
         "uses_external_human_labels": False,
         "downstream_extra_params": 0,
@@ -55,17 +68,85 @@ def h2_clean_proj_2A(
     z_cont: Any,
     y_teacher_sal: Any,
     p_hubert_target: Optional[Any] = None,
+    sponge_head_wc: Optional[Any] = None,
     sponge_weight_matrix: Optional[np.ndarray] = None,
     num_clusters: int = 500,
+    use_teacher_clean_projection: bool = True,
+    use_max_entropy_uniform_kl: bool = True,
     **kwargs: Any,
 ) -> Dict[str, Any]:
     """
     [候选锤头 2A]：双分支 Chunk Tokens + Teacher 目标净水投影 + 无监督 K=500 海绵 + 最大熵约束。
-    1. Teacher 目标净水：Y_clean = Y_sal - <Y_sal, sg(u_cont)> sg(u_cont)
-    2. 内容海绵吸收：KL(P_hubert || Softmax(W_c z_cont))
-    3. 情感去词双保险：cos^2(z_emo, z_cont) + KL(U(1/500) || Softmax(sg(W_c) z_emo))
+    全程保持 PyTorch 计算图不断梯度：
+      - `l_utt` 向 `z_emo` 反传梯度；
+      - `l_sponge` 向 `z_cont` 和线性分类头 `W_c` 反传梯度；
+      - `l_dis` 向 `z_emo`（以及正交项中的 `z_cont`）反传梯度，同时冻结 `sg(W_c)` 防止破坏分类头！
     """
     eps = 1e-6
+
+    # ---------------- PyTorch Autograd 真实训练路径（4卡 A10 零断梯度） ----------------
+    if HAS_TORCH and isinstance(z_emo, torch.Tensor):
+        bsz, dim = z_emo.shape
+        device = z_emo.device
+        dtype = z_emo.dtype
+
+        if p_hubert_target is None or not isinstance(p_hubert_target, torch.Tensor):
+            p_hubert_t = torch.full((bsz, num_clusters), 1.0 / num_clusters, device=device, dtype=dtype)
+        else:
+            p_hubert_t = p_hubert_target.to(device=device, dtype=dtype).detach()
+
+        y_sal_sg = y_teacher_sal.detach()
+
+        # 1. Teacher 目标净水投影（使用 stop-gradient 的 u_hat_cont 剔除 Teacher 中的词汇方向）
+        if use_teacher_clean_projection:
+            u_hat_cont = (z_cont.detach() / (torch.norm(z_cont.detach(), p=2, dim=-1, keepdim=True) + eps))
+            proj_coeff = torch.sum(y_sal_sg * u_hat_cont, dim=-1, keepdim=True)
+            y_clean = (y_sal_sg - proj_coeff * u_hat_cont).detach()
+        else:
+            y_clean = y_sal_sg
+
+        # l_utt 梯度流向 Student 的 z_emo
+        l_utt = F.mse_loss(z_emo, y_clean)
+
+        # 2. 内容海绵 KL 损失：梯度流向 z_cont 与 W_c
+        assert sponge_head_wc is not None, "PyTorch training mode requires nn.Linear `sponge_head_wc`!"
+        log_prob_cont = F.log_softmax(sponge_head_wc(z_cont), dim=-1)
+        l_sponge = F.kl_div(log_prob_cont, p_hubert_t, reduction="batchmean")
+
+        # 3. 正交 + 共享头 sg(W_c) 均匀分布最大熵：梯度流向 z_emo，且不破坏 W_c
+        cos_sim = F.cosine_similarity(z_emo, z_cont, dim=-1, eps=eps)
+        l_ortho = torch.mean(cos_sim * cos_sim)
+
+        if use_max_entropy_uniform_kl:
+            logits_emo_frozen_wc = F.linear(
+                z_emo,
+                sponge_head_wc.weight.detach(),
+                sponge_head_wc.bias.detach() if sponge_head_wc.bias is not None else None,
+            )
+            log_prob_emo = F.log_softmax(logits_emo_frozen_wc, dim=-1)
+            uniform_target = torch.full_like(log_prob_emo, 1.0 / num_clusters)
+            l_max_ent = F.kl_div(log_prob_emo, uniform_target, reduction="batchmean")
+        else:
+            l_max_ent = torch.zeros_like(l_ortho)
+
+        l_dis = l_ortho + l_max_ent
+        l_total_h2 = l_utt + 0.5 * l_sponge + 0.1 * l_dis
+
+        return {
+            "slot": "H2",
+            "disentangle_type": "clean_proj_2A",
+            "status": "[ACTIVE_TRIAL]",
+            "loss_utt": l_utt,
+            "loss_sponge": l_sponge,
+            "loss_dis": l_dis,
+            "loss_total_h2": l_total_h2,
+            "y_teacher_clean": y_clean,
+            "uses_external_human_labels": False,
+            "downstream_extra_params": 0,
+            "teacher_backflow_blocked": bool(use_teacher_clean_projection and use_max_entropy_uniform_kl),
+        }
+
+    # ---------------- NumPy 离线自检兼容路径 ----------------
     z_emo_np = to_numpy(z_emo)
     z_cont_np = to_numpy(z_cont)
     y_sal_np = to_numpy(y_teacher_sal)
@@ -80,13 +161,11 @@ def h2_clean_proj_2A(
         rng = np.random.default_rng(42)
         sponge_weight_matrix = (rng.standard_normal((dim, num_clusters)) * 0.02).astype(np.float32)
 
-    # 1. Teacher 目标净水投影（阻断词汇回流）
     u_hat = z_cont_np / (np.linalg.norm(z_cont_np, axis=-1, keepdims=True) + eps)
     proj = np.sum(y_sal_np * u_hat, axis=-1, keepdims=True)
-    y_clean = y_sal_np - proj * u_hat
-    l_utt = float(np.mean((z_emo_np - y_clean) ** 2))
+    y_clean = y_sal_np - proj * u_hat if use_teacher_clean_projection else y_sal_np
+    l_utt_val = float(np.mean((z_emo_np - y_clean) ** 2))
 
-    # 2. 内容海绵 KL 损失
     def _softmax(logits: np.ndarray) -> np.ndarray:
         shifted = logits - np.max(logits, axis=-1, keepdims=True)
         exps = np.exp(shifted)
@@ -94,28 +173,29 @@ def h2_clean_proj_2A(
 
     q_cont = np.clip(_softmax(z_cont_np @ sponge_weight_matrix), 1e-8, 1.0)
     p_safe = np.clip(p_hubert_np, 1e-8, 1.0)
-    l_sponge = float(np.mean(np.sum(p_safe * np.log(p_safe / q_cont), axis=-1)))
+    l_sponge_val = float(np.mean(np.sum(p_safe * np.log(p_safe / q_cont), axis=-1)))
 
-    # 3. 正交 + 共享头 sg(W_c) 均匀分布最大熵
     cos_num = np.sum(z_emo_np * z_cont_np, axis=-1)
     cos_den = (np.linalg.norm(z_emo_np, axis=-1) * np.linalg.norm(z_cont_np, axis=-1)) + eps
-    l_ortho = float(np.mean((cos_num / cos_den) ** 2))
+    l_ortho_val = float(np.mean((cos_num / cos_den) ** 2))
 
     q_emo = np.clip(_softmax(z_emo_np @ sponge_weight_matrix), 1e-8, 1.0)
     u_dist = np.full_like(q_emo, 1.0 / num_clusters)
-    l_max_ent = float(np.mean(np.sum(u_dist * np.log(u_dist / q_emo), axis=-1)))
+    l_max_ent_val = float(np.mean(np.sum(u_dist * np.log(u_dist / q_emo), axis=-1))) if use_max_entropy_uniform_kl else 0.0
+    l_dis_val = l_ortho_val + l_max_ent_val
 
     return {
         "slot": "H2",
         "disentangle_type": "clean_proj_2A",
         "status": "[ACTIVE_TRIAL]",
-        "loss_utt": l_utt,
-        "loss_sponge": l_sponge,
-        "loss_dis": l_ortho + l_max_ent,
+        "loss_utt": l_utt_val,
+        "loss_sponge": l_sponge_val,
+        "loss_dis": l_dis_val,
+        "loss_total_h2": l_utt_val + 0.5 * l_sponge_val + 0.1 * l_dis_val,
         "y_teacher_clean": y_clean,
         "uses_external_human_labels": False,
         "downstream_extra_params": 0,
-        "teacher_backflow_blocked": True,
+        "teacher_backflow_blocked": bool(use_teacher_clean_projection and use_max_entropy_uniform_kl),
     }
 
 
@@ -127,13 +207,11 @@ def h2_grl_adversarial_2B(
     grl_alpha: float = 0.5,
     **kwargs: Any,
 ) -> Dict[str, Any]:
-    """
-    [候选锤头 2B]：梯度反转层（Gradient Reversal Layer, GRL）+ 残差子空间剥离。
-    方便后续与 clean_proj_2A 做单变量对比消融。
-    """
+    """[候选锤头 2B]：梯度反转层（GRL）+ 残差子空间剥离。"""
     res = h2_clean_proj_2A(z_emo, z_cont, y_teacher_sal, p_hubert_target, **kwargs)
     res["disentangle_type"] = "grl_adv_2B"
-    res["loss_dis"] = float(res["loss_dis"] * grl_alpha)
+    res["loss_dis"] = res["loss_dis"] * grl_alpha
+    res["loss_total_h2"] = res["loss_utt"] + 0.5 * res["loss_sponge"] + 0.1 * res["loss_dis"]
     return res
 
 
@@ -170,8 +248,13 @@ class HammerSlotH2_Disentangler(BaseModule):
         self.use_teacher_clean_projection = bool(use_teacher_clean_projection)
         self.use_max_entropy_uniform_kl = bool(use_max_entropy_uniform_kl)
 
-        rng = np.random.default_rng(42)
-        self.sponge_w_np = (rng.standard_normal((self.embed_dim, self.num_phoneme_clusters)) * 0.02).astype(np.float32)
+        if HAS_TORCH:
+            self.sponge_head_wc = nn.Linear(self.embed_dim, self.num_phoneme_clusters)
+            self.sponge_w_np = None
+        else:
+            self.sponge_head_wc = None
+            rng = np.random.default_rng(42)
+            self.sponge_w_np = (rng.standard_normal((self.embed_dim, self.num_phoneme_clusters)) * 0.02).astype(np.float32)
 
     def split_and_pool_chunks(self, chunk_tokens: Any, disentangle_type: Optional[str] = None) -> Tuple[Any, Any]:
         mode = disentangle_type or self.active_card
@@ -204,7 +287,6 @@ class HammerSlotH2_Disentangler(BaseModule):
     ) -> Dict[str, Any]:
         mode = disentangle_type or self.active_card
 
-        # 直观 If-Elif-Else 锤头卡槽路由
         if mode in ("original_single", "tbd_passthrough"):
             meta = h2_original_single(z_emo, z_cont, y_teacher_sal, p_hubert_target)
         elif mode in ("clean_proj_2A", "v0_chunk_sponge_clean_proj"):
@@ -213,22 +295,34 @@ class HammerSlotH2_Disentangler(BaseModule):
                 z_cont,
                 y_teacher_sal,
                 p_hubert_target,
+                sponge_head_wc=self.sponge_head_wc,
                 sponge_weight_matrix=self.sponge_w_np,
                 num_clusters=self.num_phoneme_clusters,
+                use_teacher_clean_projection=self.use_teacher_clean_projection,
+                use_max_entropy_uniform_kl=self.use_max_entropy_uniform_kl,
             )
-            if not (self.use_teacher_clean_projection and self.use_max_entropy_uniform_kl):
-                meta["teacher_backflow_blocked"] = False
         elif mode == "grl_adv_2B":
             meta = h2_grl_adversarial_2B(
                 z_emo,
                 z_cont,
                 y_teacher_sal,
                 p_hubert_target,
+                sponge_head_wc=self.sponge_head_wc,
+                sponge_weight_matrix=self.sponge_w_np,
+                num_clusters=self.num_phoneme_clusters,
+                use_teacher_clean_projection=self.use_teacher_clean_projection,
+                use_max_entropy_uniform_kl=self.use_max_entropy_uniform_kl,
+            )
+        elif mode in H2_CANDIDATE_FUNCTIONS:
+            meta = H2_CANDIDATE_FUNCTIONS[mode](
+                z_emo,
+                z_cont,
+                y_teacher_sal,
+                p_hubert_target,
+                sponge_head_wc=self.sponge_head_wc,
                 sponge_weight_matrix=self.sponge_w_np,
                 num_clusters=self.num_phoneme_clusters,
             )
-        elif mode in H2_CANDIDATE_FUNCTIONS:
-            meta = H2_CANDIDATE_FUNCTIONS[mode](z_emo, z_cont, y_teacher_sal, p_hubert_target)
         else:
             raise ValueError(f"[H2 卡槽] 未知的 disentangle_type='{mode}'，可选值: {list(H2_CANDIDATE_FUNCTIONS)}")
 
