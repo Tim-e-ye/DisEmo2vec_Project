@@ -4,9 +4,11 @@
 卡槽 H1（输入视角变换槽）：`models/hammer_slots/slot_h1_view.py`
 ================================================================
 专门存放“如何在输入端/特征视角打破音素共振峰死记硬背”的候选锤头小函数。
-同时兼容两种工程流派（对应【细节 3】）：
+同时兼容两种工程流派（对应【细节 3】与【叮嘱 2】）：
   1. 在线 GPU 张量变换（`vtlp_1A`, `channel_drop_1B`）：直接在 GPU `forward()` 内对张量变形，零 CPU 瓶颈；
-  2. 离线预生成音频副本（`offline_wav_1C`）：DataLoader 传入 `(clean_x, offline_pert_x)`，在 GPU 上按概率二选一。
+  2. 离线预生成音频副本（`offline_wav_1C`）：DataLoader 传入 `(clean_x, offline_pert_x)`，
+     使用形状为 `(B, 1, 1)` 的布尔掩码执行 `torch.where(mask, offline_pert_x, student_x)`，
+     让同一个 Batch 内的不同样本独立掷硬币，大幅降低梯度方差！
 """
 
 from __future__ import annotations
@@ -52,14 +54,14 @@ def h1_vtlp_formant_1A(
     if HAS_TORCH and isinstance(student_x, torch.Tensor):
         bsz = student_x.shape[0]
         device = student_x.device
-        mask = (torch.rand(bsz, 1, 1, device=device) < perturb_prob).to(student_x.dtype)
+        mask = torch.rand(bsz, 1, 1, device=device) < perturb_prob
         beta = torch.empty(bsz, 1, 1, device=device, dtype=student_x.dtype).uniform_(beta_min, beta_max)
 
         orig_norm = torch.norm(student_x, p=2, dim=-1, keepdim=True).clamp_min(1e-6)
         shifted = student_x + (beta - 1.0) * torch.roll(student_x, shifts=1, dims=-1)
         new_norm = torch.norm(shifted, p=2, dim=-1, keepdim=True).clamp_min(1e-6)
         restored = shifted * (orig_norm / new_norm)
-        out = mask * restored + (1.0 - mask) * student_x
+        out = torch.where(mask, restored, student_x)
 
         orig_env = orig_norm.flatten().unsqueeze(0)
         new_env = torch.norm(out, p=2, dim=-1).flatten().unsqueeze(0).clamp_min(1e-6)
@@ -68,14 +70,14 @@ def h1_vtlp_formant_1A(
         x_np = np.asarray(student_x, dtype=np.float32)
         rng = np.random.default_rng(42)
         bsz = x_np.shape[0]
-        mask = (rng.random((bsz, 1, 1)) < perturb_prob).astype(np.float32)
+        mask = rng.random((bsz, 1, 1)) < perturb_prob
         beta = rng.uniform(beta_min, beta_max, size=(bsz, 1, 1)).astype(np.float32)
 
         orig_norm = np.maximum(np.linalg.norm(x_np, axis=-1, keepdims=True), 1e-6)
         shifted = x_np + (beta - 1.0) * np.roll(x_np, shift=1, axis=-1)
         new_norm = np.maximum(np.linalg.norm(shifted, axis=-1, keepdims=True), 1e-6)
         restored = shifted * (orig_norm / new_norm)
-        out = mask * restored + (1.0 - mask) * x_np
+        out = np.where(mask, restored, x_np)
 
         orig_flat = orig_norm.reshape(-1)
         new_flat = np.maximum(np.linalg.norm(out, axis=-1).reshape(-1), 1e-6)
@@ -132,9 +134,9 @@ def h1_offline_wav_1C(
     **kwargs: Any,
 ) -> Tuple[Any, Dict[str, Any]]:
     """
-    [候选锤头 1C（离线音频副本二选一 — 对应【细节 3】）]：
-    当使用 Praat/WORLD 等离线生成的共振峰微扰音频副本时，DataLoader 将 `(clean_x, offline_pert_x)`
-    一并传入，此处在 GPU 上以 `perturb_prob=0.5` 的概率零延迟二选一，彻底避免实时卡 CPU！
+    [候选锤头 1C（离线音频副本 Batch 内独立随机采样 — 对应【细节 3】与【叮嘱 2】）]：
+    使用形状为 `(B, 1, 1)` 的布尔掩码 `mask = (torch.rand(B, 1, 1, device=x.device) < 0.5)`，
+    通过 `torch.where(mask, offline_pert_x, student_x)` 让同一个 Batch 内的不同样本独立掷硬币！
     """
     if offline_pert_x is None:
         return h1_vtlp_formant_1A(student_x, frame_energy, perturb_prob=perturb_prob, **kwargs)
@@ -142,20 +144,22 @@ def h1_offline_wav_1C(
     if HAS_TORCH and isinstance(student_x, torch.Tensor):
         bsz = student_x.shape[0]
         shape = (bsz,) + (1,) * (student_x.dim() - 1)
-        mask = (torch.rand(shape, device=student_x.device) < perturb_prob).to(student_x.dtype)
-        out = mask * offline_pert_x.to(student_x.device, dtype=student_x.dtype) + (1.0 - mask) * student_x
+        mask = torch.rand(shape, device=student_x.device) < perturb_prob
+        pert_tensor = offline_pert_x.to(device=student_x.device, dtype=student_x.dtype)
+        out = torch.where(mask, pert_tensor, student_x)
     else:
         x_np = to_numpy(student_x)
         p_np = to_numpy(offline_pert_x)
         rng = np.random.default_rng(44)
         shape = (x_np.shape[0],) + (1,) * (x_np.ndim - 1)
-        mask = (rng.random(shape) < perturb_prob).astype(np.float32)
-        out = mask * p_np + (1.0 - mask) * x_np
+        mask = rng.random(shape) < perturb_prob
+        out = np.where(mask, p_np, x_np)
 
     return out, {
         "slot": "H1",
         "view_type": "offline_wav_1C",
         "status": "[ACTIVE_TRIAL]",
+        "batch_independent_coin_flip": True,
         "energy_envelope_corr": 1.0,
         "f0_invariance_preserved": True,
     }
@@ -202,7 +206,6 @@ class HammerSlotH1_ViewTransform(BaseModule):
         if not getattr(self, "training", True):
             mode = "original_none"
 
-        # 直观 If-Elif-Else 锤头卡槽路由
         if mode in ("original_none", "tbd_passthrough"):
             out, meta = h1_original_none(student_input, frame_energy_std, offline_pert_x)
         elif mode in ("vtlp_1A", "v0_prosody_preserving_vtlp"):

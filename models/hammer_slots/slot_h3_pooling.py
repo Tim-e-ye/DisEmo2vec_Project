@@ -4,10 +4,12 @@
 卡槽 H3（时序显著性汇聚槽）：`models/hammer_slots/slot_h3_pooling.py`
 ======================================================================
 专门存放“如何从 80% 平淡帧中精准聚焦 20% 情绪爆发帧”的候选池化锤头函数。
-同时提供 `compute_salience_weighted_frame_loss`（对应【细节 2】）：
-  - 将 H3 算出的 `frame_weights` (w_i) 一鱼两吃传给掩码帧级损失 L_Frm：
-    `L_Frm = (1 / |M|) sum_{i in M} (1 + N * sg(w_i)) ||y^S_i - sg(y^T_i)||_2^2`
-  - 并确保 Teacher 输出的 `target_utt` 与 `frame_weights` 经过 `.detach()` 阻断向 Teacher 的梯度回传！
+同时完整实现【细节 2】与【叮嘱 1】：
+  1. `padding_mask` 对齐保护：将短句末尾 Padding 帧的显著性打分 `s_i` 设为 `-1e9`（使 Padding 处 `w_i = 0`），
+     且句内背景均值 `y_bar` 仅在真实有效帧 `N_valid` 上求平均；
+  2. 显著性帧损失加权系数 `(1 + N_valid * sg(w_i))`：使用每句话自己的真实有效帧数 `N_valid` 而非矩阵总宽度 `N`，
+     彻底防止短句因拼了长 Padding 而导致权重失真；
+  3. Teacher 输出的 `target_utt` 与 `frame_weights` 全程强制 `.detach()` 阻断梯度回传。
 """
 
 from __future__ import annotations
@@ -24,29 +26,39 @@ from .slot_base import BaseModule, HAS_TORCH, HammerRedLineViolationError, torch
 def h3_original_mean(
     target_layer_results: Any,
     frame_energy: Optional[Any] = None,
+    padding_mask: Optional[Any] = None,
     **kwargs: Any,
 ) -> Tuple[Any, Any, Dict[str, Any]]:
-    """[原版基线 / original_mean]：原版 emotion2vec 无差别整句均匀平均 `target.mean(dim=1)`。"""
+    """[原版基线 / original_mean]：对每句话的有效帧做均匀平均（屏蔽 Padding 帧）。"""
     if HAS_TORCH and isinstance(target_layer_results, torch.Tensor):
-        bsz, n_frames, _ = target_layer_results.shape
-        w = torch.full(
-            (bsz, n_frames),
-            1.0 / n_frames,
-            device=target_layer_results.device,
-            dtype=target_layer_results.dtype,
-        ).detach()
-        target_utt = target_layer_results.mean(dim=1).detach()
+        y_t = target_layer_results.detach()
+        bsz, n_frames, _ = y_t.shape
+        if padding_mask is not None and isinstance(padding_mask, torch.Tensor):
+            valid_mask = (~padding_mask.bool()).to(y_t.dtype)  # (B, N): 1.0=有效帧, 0.0=Padding帧
+            n_valid = valid_mask.sum(dim=-1, keepdim=True).clamp_min(1.0)
+            w = (valid_mask / n_valid).detach()
+            target_utt = torch.sum(w.unsqueeze(-1) * y_t, dim=1).detach()
+        else:
+            w = torch.full((bsz, n_frames), 1.0 / n_frames, device=y_t.device, dtype=y_t.dtype).detach()
+            target_utt = y_t.mean(dim=1).detach()
     else:
         y_np = to_numpy(target_layer_results)
         bsz, n_frames, _ = y_np.shape
-        w = np.full((bsz, n_frames), 1.0 / n_frames, dtype=np.float32)
-        target_utt = y_np.mean(axis=1)
+        if padding_mask is not None:
+            valid_np = (~np.asarray(padding_mask, dtype=bool)).astype(np.float32)
+            n_valid = np.maximum(np.sum(valid_np, axis=-1, keepdims=True), 1.0)
+            w = valid_np / n_valid
+            target_utt = np.sum(w[:, :, None] * y_np, axis=1)
+        else:
+            w = np.full((bsz, n_frames), 1.0 / n_frames, dtype=np.float32)
+            target_utt = y_np.mean(axis=1)
 
     return target_utt, w, {
         "slot": "H3",
         "pooling_type": "original_mean",
         "status": "[TBD]",
         "silence_suppressed": False,
+        "padding_masked_zero": True,
         "weights_sum_to_one": True,
     }
 
@@ -54,27 +66,46 @@ def h3_original_mean(
 def salience_pooling_3A(
     target_layer_results: Any,
     frame_energy: Optional[Any] = None,
+    padding_mask: Optional[Any] = None,
     temperature_tau_s: float = 0.5,
     **kwargs: Any,
 ) -> Tuple[Any, Any, Dict[str, Any]]:
     """
-    [候选锤头 3A]：有声门控 × 句内背景均值离群度池化（Voiced Gate * Background Deviation Pooling）。
-    公式：s_i = sigma(e_tilde_i) * ||y^T_i - y_bar^T||_2,  w_i = Softmax(s_i / tau_s)
-    返回的 `target_utt` 和 `weights_w` 均显式 `.detach()`（阻断向 Teacher 的梯度回传，Teacher 仅靠 EMA 更新）。
+    [候选锤头 3A]：有声门控 × 句内背景均值离群度池化（含【叮嘱 1】Padding 掩码 `-1e9` 保护）。
+    公式：
+      - 句内背景均值 y_bar^T 仅在有效帧 (1 - padding_mask) 上计算；
+      - s_i = sigma(e_tilde_i) * ||y^T_i - y_bar^T||_2；
+      - 对 padding_mask == True 的位置将 s_i 设为 -1e9，使 Softmax 后 Padding 处 w_i 精确为 0！
     """
     if HAS_TORCH and isinstance(target_layer_results, torch.Tensor):
-        bsz, n_frames, _ = target_layer_results.shape
         y_t = target_layer_results.detach()
+        bsz, n_frames, _ = y_t.shape
         if frame_energy is None:
             frame_energy = torch.zeros((bsz, n_frames), device=y_t.device, dtype=y_t.dtype)
         else:
             frame_energy = frame_energy.detach()
 
-        y_bar = y_t.mean(dim=1, keepdim=True)
+        if padding_mask is not None and isinstance(padding_mask, torch.Tensor):
+            pad_bool = padding_mask.bool().to(y_t.device)
+            valid_f = (~pad_bool).to(y_t.dtype)  # (B, N)
+            n_valid = valid_f.sum(dim=1, keepdim=True).clamp_min(1.0)  # (B, 1)
+            y_bar = (torch.sum(y_t * valid_f.unsqueeze(-1), dim=1, keepdim=True) / n_valid.unsqueeze(-1))
+        else:
+            pad_bool = None
+            y_bar = y_t.mean(dim=1, keepdim=True)
+
         deviation_d = torch.norm(y_t - y_bar, p=2, dim=-1)
         voiced_gate = torch.sigmoid(frame_energy)
         salience_s = voiced_gate * deviation_d
-        weights_w = F.softmax(salience_s / max(temperature_tau_s, 1e-4), dim=-1).detach()
+        scaled_logits = salience_s / max(temperature_tau_s, 1e-4)
+
+        # 【叮嘱 1】：将 Padding 帧打分设为 -1e9，确保 Softmax 后 Padding 帧权重 w_i = 0
+        if pad_bool is not None:
+            scaled_logits = scaled_logits.masked_fill(pad_bool, -1e9)
+
+        weights_w = F.softmax(scaled_logits, dim=-1).detach()
+        if pad_bool is not None:
+            weights_w = weights_w.masked_fill(pad_bool, 0.0)
         target_utt = torch.sum(weights_w.unsqueeze(-1) * y_t, dim=1).detach()
         sum_ok = bool(
             torch.allclose(
@@ -87,14 +118,30 @@ def salience_pooling_3A(
         y_np = to_numpy(target_layer_results)
         bsz, n_frames, _ = y_np.shape
         e_np = np.zeros((bsz, n_frames), dtype=np.float32) if frame_energy is None else to_numpy(frame_energy)
-        y_bar = y_np.mean(axis=1, keepdims=True)
+
+        if padding_mask is not None:
+            pad_np = np.asarray(padding_mask, dtype=bool)
+            valid_np = (~pad_np).astype(np.float32)
+            n_valid = np.maximum(np.sum(valid_np, axis=1, keepdims=True), 1.0)
+            y_bar = np.sum(y_np * valid_np[:, :, None], axis=1, keepdims=True) / n_valid[:, :, None]
+        else:
+            pad_np = None
+            y_bar = y_np.mean(axis=1, keepdims=True)
+
         dev_d = np.linalg.norm(y_np - y_bar, axis=-1)
         gate_g = 1.0 / (1.0 + np.exp(-np.clip(e_np, -20.0, 20.0)))
         sal_s = gate_g * dev_d
-        scaled = (sal_s / max(temperature_tau_s, 1e-4))
+        scaled = sal_s / max(temperature_tau_s, 1e-4)
+
+        # 【叮嘱 1】：Padding 帧打分设为 -1e9
+        if pad_np is not None:
+            scaled = np.where(pad_np, -1e9, scaled)
+
         scaled = scaled - np.max(scaled, axis=-1, keepdims=True)
         exp_s = np.exp(scaled)
-        weights_w = exp_s / np.sum(exp_s, axis=-1, keepdims=True)
+        if pad_np is not None:
+            exp_s = np.where(pad_np, 0.0, exp_s)
+        weights_w = exp_s / np.maximum(np.sum(exp_s, axis=-1, keepdims=True), 1e-12)
         target_utt = np.sum(weights_w[:, :, None] * y_np, axis=1)
         sum_ok = bool(np.allclose(np.sum(weights_w, axis=-1), 1.0, atol=1e-4))
 
@@ -103,6 +150,7 @@ def salience_pooling_3A(
         "pooling_type": "salience_3A",
         "status": "[ACTIVE_TRIAL]",
         "silence_suppressed": True,
+        "padding_masked_zero": True,
         "weights_sum_to_one": sum_ok,
     }
 
@@ -111,11 +159,12 @@ def attn_rollout_pooling_3B(
     target_layer_results: Any,
     frame_energy: Optional[Any] = None,
     attn_weights: Optional[Any] = None,
+    padding_mask: Optional[Any] = None,
     temperature_tau_s: float = 0.5,
     **kwargs: Any,
 ) -> Tuple[Any, Any, Dict[str, Any]]:
     """
-    [候选锤头 3B]：自注意力汇聚 × 有声门控池化（Attention Rollout / Self-Attention Salience Pooling）。
+    [候选锤头 3B]：自注意力汇聚 × 有声门控池化（含 `padding_mask` `-1e9` 对齐保护）。
     """
     y_np = to_numpy(target_layer_results)
     bsz, n_frames, _ = y_np.shape
@@ -130,10 +179,18 @@ def attn_rollout_pooling_3B(
         raw_attn = np.linalg.norm(y_np - y_np.mean(axis=1, keepdims=True), axis=-1) * (1.0 - np.mean(sim_mat, axis=-1))
 
     sal_s = gate_g * raw_attn
-    scaled = (sal_s / max(temperature_tau_s, 1e-4))
+    scaled = sal_s / max(temperature_tau_s, 1e-4)
+    if padding_mask is not None:
+        pad_np = np.asarray(padding_mask, dtype=bool)
+        scaled = np.where(pad_np, -1e9, scaled)
+    else:
+        pad_np = None
+
     scaled = scaled - np.max(scaled, axis=-1, keepdims=True)
     exp_s = np.exp(scaled)
-    w_np = exp_s / np.sum(exp_s, axis=-1, keepdims=True)
+    if pad_np is not None:
+        exp_s = np.where(pad_np, 0.0, exp_s)
+    w_np = exp_s / np.maximum(np.sum(exp_s, axis=-1, keepdims=True), 1e-12)
     utt_np = np.sum(w_np[:, :, None] * y_np, axis=1)
 
     if HAS_TORCH and isinstance(target_layer_results, torch.Tensor):
@@ -147,6 +204,7 @@ def attn_rollout_pooling_3B(
         "pooling_type": "attn_rollout_3B",
         "status": "[ACTIVE_TRIAL]",
         "silence_suppressed": True,
+        "padding_masked_zero": True,
         "weights_sum_to_one": bool(np.allclose(np.sum(w_np, axis=-1), 1.0, atol=1e-4)),
     }
 
@@ -161,7 +219,7 @@ H3_CANDIDATE_FUNCTIONS: Dict[str, Callable] = {
 
 
 class HammerSlotH3_TemporalAggregator(BaseModule):
-    """卡槽 H3 封装类：支持通过 `--pooling_type` 切换池化锤头，并计算显著性加权帧损失 L_Frm。"""
+    """卡槽 H3 封装类：支持通过 `--pooling_type` 切换池化锤头，并计算带 `padding_mask` 保护的加权帧损失 L_Frm。"""
 
     def __init__(
         self,
@@ -179,29 +237,41 @@ class HammerSlotH3_TemporalAggregator(BaseModule):
         y_teacher_frames: Any,
         frame_energy_std: Optional[Any] = None,
         attn_weights: Optional[Any] = None,
+        padding_mask: Optional[Any] = None,
         pooling_type: Optional[str] = None,
     ) -> Tuple[Any, Any, Dict[str, Any]]:
         mode = pooling_type or self.active_card
 
-        # 直观 If-Elif-Else 锤头卡槽路由
         if mode in ("original_mean", "tbd_passthrough"):
-            target_utt, weights_w, meta = h3_original_mean(y_teacher_frames, frame_energy_std)
+            target_utt, weights_w, meta = h3_original_mean(
+                y_teacher_frames, frame_energy_std, padding_mask=padding_mask
+            )
         elif mode in ("salience_3A", "v0_voiced_bg_deviation_pooling"):
             target_utt, weights_w, meta = salience_pooling_3A(
-                y_teacher_frames, frame_energy_std, temperature_tau_s=self.temperature_tau_s
+                y_teacher_frames,
+                frame_energy_std,
+                padding_mask=padding_mask,
+                temperature_tau_s=self.temperature_tau_s,
             )
         elif mode == "attn_rollout_3B":
             target_utt, weights_w, meta = attn_rollout_pooling_3B(
-                y_teacher_frames, frame_energy_std, attn_weights=attn_weights, temperature_tau_s=self.temperature_tau_s
+                y_teacher_frames,
+                frame_energy_std,
+                attn_weights=attn_weights,
+                padding_mask=padding_mask,
+                temperature_tau_s=self.temperature_tau_s,
             )
         elif mode in H3_CANDIDATE_FUNCTIONS:
             target_utt, weights_w, meta = H3_CANDIDATE_FUNCTIONS[mode](
-                y_teacher_frames, frame_energy_std, attn_weights=attn_weights, temperature_tau_s=self.temperature_tau_s
+                y_teacher_frames,
+                frame_energy_std,
+                attn_weights=attn_weights,
+                padding_mask=padding_mask,
+                temperature_tau_s=self.temperature_tau_s,
             )
         else:
             raise ValueError(f"[H3 卡槽] 未知的 pooling_type='{mode}'，可选值: {list(H3_CANDIDATE_FUNCTIONS)}")
 
-        # 【细节 2 保命铁律】：确保从 Teacher 算出的 target_utt 和 weights_w 均已 .detach()
         if HAS_TORCH and isinstance(target_utt, torch.Tensor):
             target_utt = target_utt.detach()
             weights_w = weights_w.detach()
@@ -216,34 +286,57 @@ class HammerSlotH3_TemporalAggregator(BaseModule):
         y_teacher_frames: Any,
         frame_weights: Any,
         mask_indices: Optional[Any] = None,
+        padding_mask: Optional[Any] = None,
     ) -> Any:
         """
-        【细节 2 核心实现】：将 H3 返回的 `frame_weights` (w_i) 传给掩码帧级损失 L_Frm：
-            `L_Frm = (1 / |M|) sum_{i in M} (1 + N * sg(w_i)) * ||y^S_i - sg(y^T_i)||_2^2`
-        其中 `y_teacher_frames` 与 `frame_weights` 强制执行 `.detach()` 阻断向 Teacher 的梯度回传。
+        【细节 2 + 叮嘱 1 核心实现】：
+            `L_Frm = (1 / |M|) sum_{i in M} (1 + N_valid * sg(w_i)) * ||y^S_i - sg(y^T_i)||_2^2`
+        - 使用每句话的真实有效帧数 `N_valid = (~padding_mask).sum(dim=1, keepdim=True)` 替代矩阵宽度 `N`；
+        - 严格屏蔽 Padding 帧，并对 `y_teacher_frames` 与 `frame_weights` 执行 `.detach()`。
         """
         if HAS_TORCH and isinstance(y_student_frames, torch.Tensor):
-            n_frames = y_student_frames.shape[1]
+            n_total = y_student_frames.shape[1]
             y_t_sg = y_teacher_frames.detach()
             w_sg = frame_weights.detach()
+
+            if padding_mask is not None and isinstance(padding_mask, torch.Tensor):
+                valid_bool = ~padding_mask.bool().to(y_student_frames.device)
+                n_valid = valid_bool.to(y_student_frames.dtype).sum(dim=1, keepdim=True).clamp_min(1.0)
+            else:
+                valid_bool = torch.ones(
+                    y_student_frames.shape[:2], dtype=torch.bool, device=y_student_frames.device
+                )
+                n_valid = float(n_total)
+
             per_frame_mse = torch.mean((y_student_frames - y_t_sg) ** 2, dim=-1)  # (B, N)
-            boost_coeff = 1.0 + float(n_frames) * w_sg  # (1 + N * sg(w_i))
+            boost_coeff = 1.0 + n_valid * w_sg  # (1 + N_valid * sg(w_i))
             weighted_mse = boost_coeff * per_frame_mse
-            if mask_indices is not None:
-                masked_vals = weighted_mse[mask_indices]
-                return torch.mean(masked_vals) if masked_vals.numel() > 0 else torch.mean(weighted_mse)
-            return torch.mean(weighted_mse)
+
+            active_mask = (
+                (mask_indices.bool().to(y_student_frames.device) & valid_bool)
+                if (mask_indices is not None and isinstance(mask_indices, torch.Tensor))
+                else valid_bool
+            )
+            masked_vals = weighted_mse[active_mask]
+            return torch.mean(masked_vals) if masked_vals.numel() > 0 else torch.mean(weighted_mse)
 
         y_s_np = to_numpy(y_student_frames)
         y_t_np = to_numpy(y_teacher_frames)
         w_np = to_numpy(frame_weights)
-        n_frames = y_s_np.shape[1]
+        n_total = y_s_np.shape[1]
+
+        if padding_mask is not None:
+            valid_np = ~np.asarray(padding_mask, dtype=bool)
+            n_valid = np.maximum(np.sum(valid_np.astype(np.float32), axis=1, keepdims=True), 1.0)
+        else:
+            valid_np = np.ones(y_s_np.shape[:2], dtype=bool)
+            n_valid = float(n_total)
+
         per_frame_mse = np.mean((y_s_np - y_t_np) ** 2, axis=-1)
-        boost_coeff = 1.0 + float(n_frames) * w_np
+        boost_coeff = 1.0 + n_valid * w_np
         weighted_mse = boost_coeff * per_frame_mse
-        if mask_indices is not None:
-            return float(np.mean(weighted_mse[mask_indices]))
-        return float(np.mean(weighted_mse))
+        active_np = (np.asarray(mask_indices, dtype=bool) & valid_np) if mask_indices is not None else valid_np
+        return float(np.mean(weighted_mse[active_np])) if np.any(active_np) else float(np.mean(weighted_mse))
 
     def verify_red_lines(self, meta: Dict[str, Any]) -> None:
         if not meta.get("weights_sum_to_one", False):
