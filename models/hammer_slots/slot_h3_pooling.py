@@ -4,11 +4,10 @@
 卡槽 H3（时序显著性汇聚槽）：`models/hammer_slots/slot_h3_pooling.py`
 ======================================================================
 专门存放“如何从 80% 平淡帧中精准聚焦 20% 情绪爆发帧”的候选池化锤头函数。
-- 标准输入：`target_layer_results` (B, N, 768)，以及可选 `frame_energy` (B, N) 或 `attn_weights` (B, N)
-- 标准输出：汇聚后的话语级目标 `target_utt` (B, 768)、帧权重 `weights_w` (B, N)、红线诊断字典 `meta`
-- 审稿人防挑刺红线：
-  1. 严禁把纯静音帧（`e_tilde_i << 0`）误判为高权重帧（防 `|e_tilde_i|` 静音反噬漏洞）；
-  2. 同时兼顾高唤醒爆发情绪（愤怒/惊喜）与低唤醒微弱情绪（悲伤/叹息）。
+同时提供 `compute_salience_weighted_frame_loss`（对应【细节 2】）：
+  - 将 H3 算出的 `frame_weights` (w_i) 一鱼两吃传给掩码帧级损失 L_Frm：
+    `L_Frm = (1 / |M|) sum_{i in M} (1 + N * sg(w_i)) ||y^S_i - sg(y^T_i)||_2^2`
+  - 并确保 Teacher 输出的 `target_utt` 与 `frame_weights` 经过 `.detach()` 阻断向 Teacher 的梯度回传！
 """
 
 from __future__ import annotations
@@ -35,8 +34,8 @@ def h3_original_mean(
             1.0 / n_frames,
             device=target_layer_results.device,
             dtype=target_layer_results.dtype,
-        )
-        target_utt = target_layer_results.mean(dim=1)
+        ).detach()
+        target_utt = target_layer_results.mean(dim=1).detach()
     else:
         y_np = to_numpy(target_layer_results)
         bsz, n_frames, _ = y_np.shape
@@ -61,24 +60,26 @@ def salience_pooling_3A(
     """
     [候选锤头 3A]：有声门控 × 句内背景均值离群度池化（Voiced Gate * Background Deviation Pooling）。
     公式：s_i = sigma(e_tilde_i) * ||y^T_i - y_bar^T||_2,  w_i = Softmax(s_i / tau_s)
-    既彻底屏蔽纯静音帧（e_tilde_i << 0 时 sigma -> 0），又无需超参 gamma 兼顾高低唤醒情绪帧！
+    返回的 `target_utt` 和 `weights_w` 均显式 `.detach()`（阻断向 Teacher 的梯度回传，Teacher 仅靠 EMA 更新）。
     """
     if HAS_TORCH and isinstance(target_layer_results, torch.Tensor):
         bsz, n_frames, _ = target_layer_results.shape
+        y_t = target_layer_results.detach()
         if frame_energy is None:
-            frame_energy = torch.zeros(
-                (bsz, n_frames), device=target_layer_results.device, dtype=target_layer_results.dtype
-            )
-        y_bar = target_layer_results.mean(dim=1, keepdim=True)
-        deviation_d = torch.norm(target_layer_results - y_bar, p=2, dim=-1)
+            frame_energy = torch.zeros((bsz, n_frames), device=y_t.device, dtype=y_t.dtype)
+        else:
+            frame_energy = frame_energy.detach()
+
+        y_bar = y_t.mean(dim=1, keepdim=True)
+        deviation_d = torch.norm(y_t - y_bar, p=2, dim=-1)
         voiced_gate = torch.sigmoid(frame_energy)
         salience_s = voiced_gate * deviation_d
-        weights_w = F.softmax(salience_s / max(temperature_tau_s, 1e-4), dim=-1)
-        target_utt = torch.sum(weights_w.unsqueeze(-1) * target_layer_results, dim=1)
+        weights_w = F.softmax(salience_s / max(temperature_tau_s, 1e-4), dim=-1).detach()
+        target_utt = torch.sum(weights_w.unsqueeze(-1) * y_t, dim=1).detach()
         sum_ok = bool(
             torch.allclose(
                 weights_w.sum(dim=-1),
-                torch.ones(bsz, device=target_layer_results.device, dtype=target_layer_results.dtype),
+                torch.ones(bsz, device=y_t.device, dtype=y_t.dtype),
                 atol=1e-4,
             )
         )
@@ -115,19 +116,17 @@ def attn_rollout_pooling_3B(
 ) -> Tuple[Any, Any, Dict[str, Any]]:
     """
     [候选锤头 3B]：自注意力汇聚 × 有声门控池化（Attention Rollout / Self-Attention Salience Pooling）。
-    利用特征帧自相关能量模拟多示例学习（MIL）注意力权重，并乘以有声门控屏蔽静音。
     """
     y_np = to_numpy(target_layer_results)
-    bsz, n_frames, dim = y_np.shape
+    bsz, n_frames, _ = y_np.shape
     e_np = np.zeros((bsz, n_frames), dtype=np.float32) if frame_energy is None else to_numpy(frame_energy)
     gate_g = 1.0 / (1.0 + np.exp(-np.clip(e_np, -20.0, 20.0)))
 
     if attn_weights is not None:
         raw_attn = to_numpy(attn_weights)
     else:
-        # 帧间余弦注意力中心度（Attention Rollout proxy）
         y_norm = y_np / (np.linalg.norm(y_np, axis=-1, keepdims=True) + 1e-6)
-        sim_mat = np.matmul(y_norm, np.transpose(y_norm, (0, 2, 1)))  # (B, N, N)
+        sim_mat = np.matmul(y_norm, np.transpose(y_norm, (0, 2, 1)))
         raw_attn = np.linalg.norm(y_np - y_np.mean(axis=1, keepdims=True), axis=-1) * (1.0 - np.mean(sim_mat, axis=-1))
 
     sal_s = gate_g * raw_attn
@@ -138,8 +137,8 @@ def attn_rollout_pooling_3B(
     utt_np = np.sum(w_np[:, :, None] * y_np, axis=1)
 
     if HAS_TORCH and isinstance(target_layer_results, torch.Tensor):
-        utt_out = torch.from_numpy(utt_np).to(target_layer_results.device)
-        w_out = torch.from_numpy(w_np).to(target_layer_results.device)
+        utt_out = torch.from_numpy(utt_np).to(target_layer_results.device, dtype=target_layer_results.dtype).detach()
+        w_out = torch.from_numpy(w_np).to(target_layer_results.device, dtype=target_layer_results.dtype).detach()
     else:
         utt_out, w_out = utt_np, w_np
 
@@ -162,7 +161,7 @@ H3_CANDIDATE_FUNCTIONS: Dict[str, Callable] = {
 
 
 class HammerSlotH3_TemporalAggregator(BaseModule):
-    """卡槽 H3 封装类：支持通过 `--pooling_type` / `active_card` 开关切换候选时序池化锤头。"""
+    """卡槽 H3 封装类：支持通过 `--pooling_type` 切换池化锤头，并计算显著性加权帧损失 L_Frm。"""
 
     def __init__(
         self,
@@ -184,7 +183,7 @@ class HammerSlotH3_TemporalAggregator(BaseModule):
     ) -> Tuple[Any, Any, Dict[str, Any]]:
         mode = pooling_type or self.active_card
 
-        # 直观 If-Elif-Else 锤头卡槽路由（与用户示例完全对齐！）
+        # 直观 If-Elif-Else 锤头卡槽路由
         if mode in ("original_mean", "tbd_passthrough"):
             target_utt, weights_w, meta = h3_original_mean(y_teacher_frames, frame_energy_std)
         elif mode in ("salience_3A", "v0_voiced_bg_deviation_pooling"):
@@ -202,9 +201,49 @@ class HammerSlotH3_TemporalAggregator(BaseModule):
         else:
             raise ValueError(f"[H3 卡槽] 未知的 pooling_type='{mode}'，可选值: {list(H3_CANDIDATE_FUNCTIONS)}")
 
+        # 【细节 2 保命铁律】：确保从 Teacher 算出的 target_utt 和 weights_w 均已 .detach()
+        if HAS_TORCH and isinstance(target_utt, torch.Tensor):
+            target_utt = target_utt.detach()
+            weights_w = weights_w.detach()
+
         if mode not in ("original_mean", "tbd_passthrough"):
             self.verify_red_lines(meta)
         return target_utt, weights_w, meta
+
+    def compute_salience_weighted_frame_loss(
+        self,
+        y_student_frames: Any,
+        y_teacher_frames: Any,
+        frame_weights: Any,
+        mask_indices: Optional[Any] = None,
+    ) -> Any:
+        """
+        【细节 2 核心实现】：将 H3 返回的 `frame_weights` (w_i) 传给掩码帧级损失 L_Frm：
+            `L_Frm = (1 / |M|) sum_{i in M} (1 + N * sg(w_i)) * ||y^S_i - sg(y^T_i)||_2^2`
+        其中 `y_teacher_frames` 与 `frame_weights` 强制执行 `.detach()` 阻断向 Teacher 的梯度回传。
+        """
+        if HAS_TORCH and isinstance(y_student_frames, torch.Tensor):
+            n_frames = y_student_frames.shape[1]
+            y_t_sg = y_teacher_frames.detach()
+            w_sg = frame_weights.detach()
+            per_frame_mse = torch.mean((y_student_frames - y_t_sg) ** 2, dim=-1)  # (B, N)
+            boost_coeff = 1.0 + float(n_frames) * w_sg  # (1 + N * sg(w_i))
+            weighted_mse = boost_coeff * per_frame_mse
+            if mask_indices is not None:
+                masked_vals = weighted_mse[mask_indices]
+                return torch.mean(masked_vals) if masked_vals.numel() > 0 else torch.mean(weighted_mse)
+            return torch.mean(weighted_mse)
+
+        y_s_np = to_numpy(y_student_frames)
+        y_t_np = to_numpy(y_teacher_frames)
+        w_np = to_numpy(frame_weights)
+        n_frames = y_s_np.shape[1]
+        per_frame_mse = np.mean((y_s_np - y_t_np) ** 2, axis=-1)
+        boost_coeff = 1.0 + float(n_frames) * w_np
+        weighted_mse = boost_coeff * per_frame_mse
+        if mask_indices is not None:
+            return float(np.mean(weighted_mse[mask_indices]))
+        return float(np.mean(weighted_mse))
 
     def verify_red_lines(self, meta: Dict[str, Any]) -> None:
         if not meta.get("weights_sum_to_one", False):

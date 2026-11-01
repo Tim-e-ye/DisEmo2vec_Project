@@ -13,6 +13,7 @@ from .slot_h1_view import (
     H1_CANDIDATE_FUNCTIONS,
     HammerSlotH1_ViewTransform,
     h1_channel_dropout_1B,
+    h1_offline_wav_1C,
     h1_original_none,
     h1_vtlp_formant_1A,
 )

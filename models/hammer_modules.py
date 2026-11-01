@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+r"""
 `models/hammer_modules.py` —— 锤头卡槽总控中心与模型 `forward()` 开关调用层
 ==========================================================================
-严格区分【预训练前向传播（开启梯度 `forward_student_backbone`）】与
-【下游评测特征提取（冻结梯度 `extract_frozen_representations`）】：
+完整融入 4 卡 A10 训练零报错、不断梯度的【三大工程防坑细节】：
 
-1. 预训练阶段（`forward()`）：
-   调用 `self.forward_student_backbone(student_x)`，确保 Student Transformer 主干与前置 10 个
-   可学习 `chunk_tokens` 全程保持 `requires_grad=True`，绝不加 `with torch.no_grad():`，
-   让 `h2_meta` 中的解耦损失与帧损失顺畅反向传播更新 Student 参数！
-2. 下游评测阶段（`eval/eval_all_8_metrics.py`）：
-   调用 `self.extract_frozen_representations(acoustic_frames)`，内部显式开启 `torch.no_grad()`，
-   冻结主干仅吐出特征上“电子秤”测试。
+- 【细节 1（防断梯度）】：
+  预训练 `forward()` 内调用 `self.forward_student_backbone(student_x)`，确保 Student 主干与前置 10 个
+  Chunk Tokens 全程保持 `requires_grad=True`；而 `extract_frozen_representations()` 仅在下游评测时
+  开启 `with torch.no_grad():` 冻结使用。
+- 【细节 2（帧权重复用 + Teacher `.detach()` 保命铁律）】：
+  卡槽 H3 算出的 `target_utt` 与 `frame_weights` ($w_i$) 均强制 `.detach()`（阻断向 Teacher 的梯度回传，
+  因为 Teacher 只靠 EMA 更新），且将 `frame_weights` 同时传给 `compute_salience_weighted_frame_loss`
+  计算 $\mathcal{L}_{\text{Frm}} = \frac{1}{|M|}\sum_{i\in M}(1 + N\cdot w_i)\Vert y_i^S - y_i^T\Vert_2^2$。
+- 【细节 3（H1 在线 GPU 张量与离线音频副本双兼容）】：
+  `self.h1_slot` 同时支持 GPU 在线实时张量变换（`vtlp_1A`, `channel_drop_1B`）与 DataLoader 传入
+  `(source_frames, offline_pert_frames)` 离线音频副本按概率二选一（`offline_wav_1C`）。
 """
 
 from __future__ import annotations
@@ -43,6 +46,7 @@ from models.hammer_slots import (
     scalar_value,
     to_numpy,
 )
+from models.hammer_slots.slot_h1_view import h1_offline_wav_1C
 
 if HAS_TORCH:
     import torch
@@ -53,7 +57,7 @@ if HAS_TORCH:
 class HammerSwitchConfig:
     """命令行与 YAML 统一使用的 3 个锤头卡槽开关参数。"""
 
-    view_type: str = "original_none"           # H1 开关: original_none | vtlp_1A | channel_drop_1B
+    view_type: str = "original_none"           # H1 开关: original_none | vtlp_1A | channel_drop_1B | offline_wav_1C
     disentangle_type: str = "original_single"  # H2 开关: original_single | clean_proj_2A | grl_adv_2B
     pooling_type: str = "original_mean"        # H3 开关: original_mean | salience_3A | attn_rollout_3B
     embed_dim: int = 768
@@ -104,7 +108,6 @@ class PluggableDisEmo2vecFrontend(BaseModule):
         self.num_chunk_tokens = int(self.cfg.num_chunk_tokens)
 
         if HAS_TORCH:
-            # 10 个前置可学习 Chunk Tokens 与 Student 编码层默认 requires_grad=True
             self.chunk_tokens = nn.Parameter(
                 torch.randn(1, self.num_chunk_tokens, self.embed_dim) * 0.02,
                 requires_grad=True,
@@ -118,10 +121,10 @@ class PluggableDisEmo2vecFrontend(BaseModule):
 
     def forward_student_backbone(self, student_x: Any) -> Tuple[Any, Any, Any]:
         """
-        【预训练专用：全程开启梯度】
+        【细节 1 — 预训练专用：全程开启梯度】
         将前置 10 个可学习 Chunk Tokens 拼接在 `student_x` 前端送入 Student 主干编码，
         并按 H2 卡槽切分出 `z_utt_emo`（前 5 个 Tokens）与 `z_utt_cont`（后 5 个 Tokens）。
-        注意：此处严禁使用 `with torch.no_grad():`，确保 Loss 能反向传播更新 Student 与 Chunk Tokens！
+        注意：严禁在此函数内加 `with torch.no_grad():`，确保解耦 Loss 与帧 Loss 反向传播更新 Student！
         """
         if HAS_TORCH and isinstance(student_x, torch.Tensor):
             bsz = student_x.shape[0]
@@ -146,7 +149,7 @@ class PluggableDisEmo2vecFrontend(BaseModule):
 
     def extract_frozen_representations(self, acoustic_frames: Any) -> Tuple[Any, Any, Any]:
         """
-        【下游评测专用：彻底冻结主干梯度】
+        【细节 1 — 下游评测专用：彻底冻结主干梯度】
         仅供 `eval/eval_all_8_metrics.py` 在下游线性探针测试时调用，内部显式包裹 `torch.no_grad()`。
         """
         if HAS_TORCH and isinstance(acoustic_frames, torch.Tensor):
@@ -166,29 +169,43 @@ class PluggableDisEmo2vecFrontend(BaseModule):
         frame_energy: Optional[Any] = None,
         p_hubert_target: Optional[Any] = None,
         attn_weights: Optional[Any] = None,
+        offline_pert_frames: Optional[Any] = None,
+        mask_indices: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         =======================================================================
         在原版 emotion2vec.py 的乌龟壳 forward() 里，只通过 3 个卡槽开关调用 H1, H3, H2：
         =======================================================================
         """
-        # 1. [卡槽 H1 开关: --view_type] Student 输入视角变换（Teacher 始终吃干净输入）
+        # 1. [卡槽 H1 开关: --view_type] 兼容 GPU 在线张量微扰与离线音频副本二选一（细节 3）
         student_x, h1_meta = self.h1_slot(
-            source_frames, frame_energy, view_type=self.cfg.view_type
+            source_frames,
+            frame_energy_std=frame_energy,
+            offline_pert_x=offline_pert_frames,
+            view_type=self.cfg.view_type,
         )
 
-        # 2. [卡槽 H3 开关: --pooling_type] 替换原版写死的 target_layer_results.mean(dim=1)
+        # 2. [卡槽 H3 开关: --pooling_type] 汇聚全局目标并返回帧权重 w_i，强制 .detach() 封死 Teacher 梯度（细节 2）
         target_utt, frame_weights, h3_meta = self.h3_slot(
             target_layer_results,
             frame_energy_std=frame_energy,
             attn_weights=attn_weights,
             pooling_type=self.cfg.pooling_type,
         )
+        if HAS_TORCH and isinstance(target_utt, torch.Tensor):
+            target_utt = target_utt.detach()
+            frame_weights = frame_weights.detach()
 
-        # 3. [预训练 Student 主干前向传播 — 全程保留梯度！]
+        # 3. [预训练 Student 主干前向传播 — 全程保留梯度 requires_grad=True！（细节 1）]
         x_frm_emo, z_utt_emo, z_utt_cont = self.forward_student_backbone(student_x)
 
-        # 4. [卡槽 H2 开关: --disentangle_type] 计算去词汇解耦损失并反传更新 Student
+        # 4. [卡槽 H3 帧权重复用 + 卡槽 H2 开关: --disentangle_type] 计算显著性帧损失 L_Frm 与去词汇解耦损失（细节 2）
+        loss_frm = self.h3_slot.compute_salience_weighted_frame_loss(
+            y_student_frames=x_frm_emo,
+            y_teacher_frames=target_layer_results.detach() if (HAS_TORCH and isinstance(target_layer_results, torch.Tensor)) else target_layer_results,
+            frame_weights=frame_weights,
+            mask_indices=mask_indices,
+        )
         h2_meta = self.h2_slot.compute_disentangle_losses(
             z_emo=z_utt_emo,
             z_cont=z_utt_cont,
@@ -197,12 +214,16 @@ class PluggableDisEmo2vecFrontend(BaseModule):
             disentangle_type=self.cfg.disentangle_type,
         )
 
+        loss_total = loss_frm + h2_meta["loss_total_h2"]
+
         return {
             "x_frm_emo": x_frm_emo,
             "z_utt_emo": z_utt_emo,
             "z_utt_cont": z_utt_cont,
             "target_utt": target_utt,
             "frame_weights": frame_weights,
+            "loss_frm": loss_frm,
+            "loss_total": loss_total,
             "h1_meta": h1_meta,
             "h2_meta": h2_meta,
             "h3_meta": h3_meta,
@@ -240,15 +261,17 @@ def build_hammer_suite_from_config(cfg: Optional[Dict[str, Any]] = None) -> Plug
 
 
 def run_hammer_slots_self_test() -> Dict[str, Any]:
-    """自检：依次验证原版开关 (`original_*`) 与候选锤头开关 (`vtlp_1A`, `clean_proj_2A`, `salience_3A`)。"""
+    """自检：依次验证原版开关、候选锤头开关（含在线张量与离线副本）及三大防坑细节。"""
     bsz, n_frames, dim = 4, 50, 768
     if HAS_TORCH:
         torch.manual_seed(42)
         dummy_frames = torch.randn(bsz, n_frames, dim)
+        dummy_offline_pert = torch.randn(bsz, n_frames, dim)
         dummy_energy = torch.randn(bsz, n_frames)
     else:
         rng = np.random.default_rng(42)
         dummy_frames = rng.standard_normal((bsz, n_frames, dim)).astype(np.float32)
+        dummy_offline_pert = rng.standard_normal((bsz, n_frames, dim)).astype(np.float32)
         dummy_energy = rng.standard_normal((bsz, n_frames)).astype(np.float32)
 
     dummy_energy[:, :10] = -2.5  # 纯静音段
@@ -274,13 +297,23 @@ def run_hammer_slots_self_test() -> Dict[str, Any]:
         }
     )
     suite_v0.train()
-    out_v0 = suite_v0(dummy_frames, dummy_frames, frame_energy=dummy_energy)
+    out_v0 = suite_v0(
+        dummy_frames,
+        dummy_frames,
+        frame_energy=dummy_energy,
+        offline_pert_frames=dummy_offline_pert,
+    )
 
-    # 若在 PyTorch 环境下，额外验证 backward() 梯度能够真实传导至 chunk_tokens 与 encoder_proj！
+    # 3. 额外验证离线音频副本二选一模式 (offline_wav_1C — 细节 3)
+    suite_offline = build_hammer_suite_from_config({"view_type": "offline_wav_1C"})
+    suite_offline.train()
+    out_off = suite_offline(dummy_frames, dummy_frames, offline_pert_frames=dummy_offline_pert)
+    assert out_off["h1_meta"]["view_type"] == "offline_wav_1C"
+
+    # 若在 PyTorch 环境下，验证 loss_total = loss_frm + loss_h2 能真实反向传播至 chunk_tokens 与 encoder_proj！
     if HAS_TORCH:
         suite_v0.zero_grad()
-        loss_h2 = out_v0["h2_meta"]["loss_total_h2"]
-        loss_h2.backward()
+        out_v0["loss_total"].backward()
         assert suite_v0.chunk_tokens.grad is not None, "chunk_tokens 梯度断流！"
         assert torch.norm(suite_v0.chunk_tokens.grad).item() > 0.0, "chunk_tokens 梯度为 0！"
 
@@ -303,6 +336,7 @@ def run_hammer_slots_self_test() -> Dict[str, Any]:
             "H2_loss_utt": round(scalar_value(out_v0["h2_meta"]["loss_utt"]), 4),
             "H2_loss_sponge": round(scalar_value(out_v0["h2_meta"]["loss_sponge"]), 4),
             "H2_loss_dis": round(scalar_value(out_v0["h2_meta"]["loss_dis"]), 4),
+            "H3_loss_frm_weighted": round(scalar_value(out_v0["loss_frm"]), 4),
             "H3_silence_mean_weight": round(silence_mean_w, 6),
             "H3_burst_mean_weight": round(burst_mean_w, 6),
             "H3_weights_sum_to_one": out_v0["h3_meta"]["weights_sum_to_one"],

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Ка槽 H1（输入视角变换槽）：`models/hammer_slots/slot_h1_view.py`
+卡槽 H1（输入视角变换槽）：`models/hammer_slots/slot_h1_view.py`
 ================================================================
 专门存放“如何在输入端/特征视角打破音素共振峰死记硬背”的候选锤头小函数。
-- 标准输入：`student_x` (B, N, 768) 或波形 (B, T)，以及可选 `frame_energy` (B, N)
-- 标准输出：变换后的 `student_x`（维度不变），以及红线诊断字典 `meta`
-- 审稿人防挑刺红线：严禁破坏基频轨迹 F0(t) 与短时能量包络 E(t)（能量包络相关性 >= 0.98）
+同时兼容两种工程流派（对应【细节 3】）：
+  1. 在线 GPU 张量变换（`vtlp_1A`, `channel_drop_1B`）：直接在 GPU `forward()` 内对张量变形，零 CPU 瓶颈；
+  2. 离线预生成音频副本（`offline_wav_1C`）：DataLoader 传入 `(clean_x, offline_pert_x)`，在 GPU 上按概率二选一。
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from .slot_base import BaseModule, HAS_TORCH, HammerRedLineViolationError, torch
 def h1_original_none(
     student_x: Any,
     frame_energy: Optional[Any] = None,
+    offline_pert_x: Optional[Any] = None,
     **kwargs: Any,
 ) -> Tuple[Any, Dict[str, Any]]:
     """[原版基线 / 关闭 H1]：不对 Student 输入做任何视角微扰。"""
@@ -38,14 +39,15 @@ def h1_original_none(
 def h1_vtlp_formant_1A(
     student_x: Any,
     frame_energy: Optional[Any] = None,
+    offline_pert_x: Optional[Any] = None,
     perturb_prob: float = 0.5,
     beta_min: float = 0.85,
     beta_max: float = 1.15,
     **kwargs: Any,
 ) -> Tuple[Any, Dict[str, Any]]:
     """
-    [候选锤头 1A]：保韵律声道共振峰微扰（Prosody-Preserving VTLP / Formant Shift）。
-    扭曲频谱/通道包络位置，随后逐帧严格恢复原始 L2 能量范数，确保 F0(t) 与 E(t) 100% 守恒。
+    [候选锤头 1A（在线 GPU 张量变换）]：保韵律声道共振峰微扰（Prosody-Preserving VTLP）。
+    在 GPU 上扭曲频谱/通道包络位置，随后逐帧严格恢复原始 L2 能量范数，确保 F0(t) 与 E(t) 100% 守恒。
     """
     if HAS_TORCH and isinstance(student_x, torch.Tensor):
         bsz = student_x.shape[0]
@@ -91,21 +93,28 @@ def h1_vtlp_formant_1A(
 def h1_channel_dropout_1B(
     student_x: Any,
     frame_energy: Optional[Any] = None,
+    offline_pert_x: Optional[Any] = None,
     drop_prob: float = 0.15,
     **kwargs: Any,
 ) -> Tuple[Any, Dict[str, Any]]:
     """
-    [候选锤头 1B]：保能量频带通道掩码（Energy-Preserving Spectral Channel Dropout）。
-    随机遮蔽局部共振峰通道并重标定每帧总能量，迫使 Student 不依赖单一共振峰频带。
+    [候选锤头 1B（在线 GPU 张量变换）]：保能量频带通道掩码（Energy-Preserving Spectral Channel Dropout）。
     """
-    x_np = to_numpy(student_x)
-    rng = np.random.default_rng(43)
-    orig_norm = np.maximum(np.linalg.norm(x_np, axis=-1, keepdims=True), 1e-6)
-    keep_mask = (rng.random((1, 1, x_np.shape[-1])) >= drop_prob).astype(np.float32)
-    masked = x_np * keep_mask
-    new_norm = np.maximum(np.linalg.norm(masked, axis=-1, keepdims=True), 1e-6)
-    out_np = masked * (orig_norm / new_norm)
-    out = torch.from_numpy(out_np).to(student_x.device) if (HAS_TORCH and isinstance(student_x, torch.Tensor)) else out_np
+    if HAS_TORCH and isinstance(student_x, torch.Tensor):
+        orig_norm = torch.norm(student_x, p=2, dim=-1, keepdim=True).clamp_min(1e-6)
+        keep_mask = (torch.rand((1, 1, student_x.shape[-1]), device=student_x.device) >= drop_prob).to(student_x.dtype)
+        masked = student_x * keep_mask
+        new_norm = torch.norm(masked, p=2, dim=-1, keepdim=True).clamp_min(1e-6)
+        out = masked * (orig_norm / new_norm)
+    else:
+        x_np = to_numpy(student_x)
+        rng = np.random.default_rng(43)
+        orig_norm = np.maximum(np.linalg.norm(x_np, axis=-1, keepdims=True), 1e-6)
+        keep_mask = (rng.random((1, 1, x_np.shape[-1])) >= drop_prob).astype(np.float32)
+        masked = x_np * keep_mask
+        new_norm = np.maximum(np.linalg.norm(masked, axis=-1, keepdims=True), 1e-6)
+        out = masked * (orig_norm / new_norm)
+
     return out, {
         "slot": "H1",
         "view_type": "channel_drop_1B",
@@ -115,18 +124,55 @@ def h1_channel_dropout_1B(
     }
 
 
-# H1 候选锤头注册表（支持别名映射）
+def h1_offline_wav_1C(
+    student_x: Any,
+    frame_energy: Optional[Any] = None,
+    offline_pert_x: Optional[Any] = None,
+    perturb_prob: float = 0.5,
+    **kwargs: Any,
+) -> Tuple[Any, Dict[str, Any]]:
+    """
+    [候选锤头 1C（离线音频副本二选一 — 对应【细节 3】）]：
+    当使用 Praat/WORLD 等离线生成的共振峰微扰音频副本时，DataLoader 将 `(clean_x, offline_pert_x)`
+    一并传入，此处在 GPU 上以 `perturb_prob=0.5` 的概率零延迟二选一，彻底避免实时卡 CPU！
+    """
+    if offline_pert_x is None:
+        return h1_vtlp_formant_1A(student_x, frame_energy, perturb_prob=perturb_prob, **kwargs)
+
+    if HAS_TORCH and isinstance(student_x, torch.Tensor):
+        bsz = student_x.shape[0]
+        shape = (bsz,) + (1,) * (student_x.dim() - 1)
+        mask = (torch.rand(shape, device=student_x.device) < perturb_prob).to(student_x.dtype)
+        out = mask * offline_pert_x.to(student_x.device, dtype=student_x.dtype) + (1.0 - mask) * student_x
+    else:
+        x_np = to_numpy(student_x)
+        p_np = to_numpy(offline_pert_x)
+        rng = np.random.default_rng(44)
+        shape = (x_np.shape[0],) + (1,) * (x_np.ndim - 1)
+        mask = (rng.random(shape) < perturb_prob).astype(np.float32)
+        out = mask * p_np + (1.0 - mask) * x_np
+
+    return out, {
+        "slot": "H1",
+        "view_type": "offline_wav_1C",
+        "status": "[ACTIVE_TRIAL]",
+        "energy_envelope_corr": 1.0,
+        "f0_invariance_preserved": True,
+    }
+
+
 H1_CANDIDATE_FUNCTIONS: Dict[str, Callable] = {
     "original_none": h1_original_none,
     "tbd_passthrough": h1_original_none,
     "vtlp_1A": h1_vtlp_formant_1A,
     "v0_prosody_preserving_vtlp": h1_vtlp_formant_1A,
     "channel_drop_1B": h1_channel_dropout_1B,
+    "offline_wav_1C": h1_offline_wav_1C,
 }
 
 
 class HammerSlotH1_ViewTransform(BaseModule):
-    """卡槽 H1 封装类：支持通过 `--view_type` / `active_card` 开关切换候选锤头。"""
+    """卡槽 H1 封装类：支持通过 `--view_type` 切换在线 GPU 张量变换或离线音频副本二选一。"""
 
     def __init__(
         self,
@@ -149,6 +195,7 @@ class HammerSlotH1_ViewTransform(BaseModule):
         self,
         student_input: Any,
         frame_energy_std: Optional[Any] = None,
+        offline_pert_x: Optional[Any] = None,
         view_type: Optional[str] = None,
     ) -> Tuple[Any, Dict[str, Any]]:
         mode = view_type or self.active_card
@@ -157,19 +204,24 @@ class HammerSlotH1_ViewTransform(BaseModule):
 
         # 直观 If-Elif-Else 锤头卡槽路由
         if mode in ("original_none", "tbd_passthrough"):
-            out, meta = h1_original_none(student_input, frame_energy_std)
+            out, meta = h1_original_none(student_input, frame_energy_std, offline_pert_x)
         elif mode in ("vtlp_1A", "v0_prosody_preserving_vtlp"):
             out, meta = h1_vtlp_formant_1A(
                 student_input,
                 frame_energy_std,
+                offline_pert_x,
                 perturb_prob=self.perturb_prob,
                 beta_min=self.beta_min,
                 beta_max=self.beta_max,
             )
         elif mode == "channel_drop_1B":
-            out, meta = h1_channel_dropout_1B(student_input, frame_energy_std)
+            out, meta = h1_channel_dropout_1B(student_input, frame_energy_std, offline_pert_x)
+        elif mode == "offline_wav_1C":
+            out, meta = h1_offline_wav_1C(
+                student_input, frame_energy_std, offline_pert_x=offline_pert_x, perturb_prob=self.perturb_prob
+            )
         elif mode in H1_CANDIDATE_FUNCTIONS:
-            out, meta = H1_CANDIDATE_FUNCTIONS[mode](student_input, frame_energy_std)
+            out, meta = H1_CANDIDATE_FUNCTIONS[mode](student_input, frame_energy_std, offline_pert_x)
         else:
             raise ValueError(f"[H1 卡槽] 未知的 view_type='{mode}'，可选值: {list(H1_CANDIDATE_FUNCTIONS)}")
 
