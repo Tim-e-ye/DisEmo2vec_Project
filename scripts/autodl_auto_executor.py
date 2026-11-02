@@ -6,16 +6,19 @@
 (`scripts/autodl_auto_executor.py`)
 ================================================================================
 Provides zero-touch automated execution of all DisEmo2vec Wind-Tunnel trials:
-  1. Probes configured AutoDL SSH instances (`autodl-audio`, `autodl-pro`, etc.)
-     from `configs/autodl_instance.json`.
-  2. If an AutoDL SSH node is ONLINE:
-     - Syncs the latest GitHub commit on the remote instance,
-     - Runs the 3-step Wind-Tunnel trial (`smoke_test_hammer.py -> train_wind_tunnel.py -> eval_all_8_metrics.py --strict-real`),
-     - Pulls `results/*.json` & `results/*.md` back to the local repository.
-  3. If remote AutoDL SSH nodes are currently OFFLINE (powered down):
+  1. Probes configured AutoDL SSH instances (`autodl-pilot`, `autodl-audio`, `autodl-pro`)
+     from `configs/autodl_instance.json` via direct host/port SSH key connection.
+  2. If an AutoDL SSH node is ONLINE (e.g., `autodl-pilot` on `connect.westd.seetacloud.com:31527`
+     with `NVIDIA RTX PRO 6000 Blackwell Server Edition 96GB`):
+     - Clones / syncs the latest GitHub commit on `/root/autodl-tmp/DisEmo2vec_Project`,
+     - Executes the full 3-step Wind-Tunnel pipeline natively on the remote GPU
+       (`smoke_test_hammer.py -> train_wind_tunnel.py -> eval_all_8_metrics.py --strict-real`),
+     - Pulls `results/*.json`, `results/*.md`, `results/*.csv`, and `results/checkpoints/*.pt`
+       back to the local repository.
+  3. If all remote AutoDL SSH nodes are currently OFFLINE (powered down):
      - Automatically and seamlessly executes the full 3-step Wind-Tunnel loop
-       locally (`smoke_test_hammer.py -> train_wind_tunnel.py -> eval_all_8_metrics.py --strict-real`)
-       without blocking or failing, and records node status in `results/autodl_execution_log.json`.
+       locally without blocking or failing, and records node status in
+       `results/autodl_execution_log.json`.
   4. Automatically updates:
      - `results/leaderboard.csv` (unified 8-metric trial ledger)
      - `results/step7_baton0_vs_baton1_comparison.md` (detailed Baton 0 vs. Baton 1 report)
@@ -37,6 +40,7 @@ import datetime
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -55,39 +59,62 @@ EXEC_LOG_PATH = PROJECT_ROOT / "results" / "autodl_execution_log.json"
 LEADERBOARD_PATH = PROJECT_ROOT / "results" / "leaderboard.csv"
 
 
+def _build_ssh_base_args(cand: Dict[str, Any], timeout_sec: int = 5, is_scp: bool = False) -> List[str]:
+    """Builds portable SSH/SCP base command arguments using explicit host, port, and ed25519 key."""
+    key_path = Path.home() / ".ssh" / "id_ed25519"
+    port_flag = "-P" if is_scp else "-p"
+    args = [
+        "scp" if is_scp else "ssh",
+        port_flag,
+        str(cand["port"]),
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        f"ConnectTimeout={timeout_sec}",
+        "-o",
+        "BatchMode=yes",
+    ]
+    if key_path.exists():
+        args.extend(["-i", str(key_path)])
+    return args
+
+
 def probe_autodl_ssh_nodes(cfg: Dict[str, Any]) -> Tuple[str, Optional[Dict[str, Any]], List[Dict[str, Any]]]:
     """
-    Probes each configured AutoDL SSH alias with a fast timeout.
+    Probes each configured AutoDL SSH node with a fast timeout.
     Returns `(execution_mode, active_node_or_none, probe_records)`.
     """
-    timeout_sec = int(cfg.get("ssh_connect_timeout_sec", 3))
+    timeout_sec = int(cfg.get("ssh_connect_timeout_sec", 4))
     probe_records: List[Dict[str, Any]] = []
     active_node: Optional[Dict[str, Any]] = None
 
     for cand in cfg.get("remote_candidates", []):
         alias = cand["ssh_alias"]
-        cmd = [
-            "ssh",
-            "-o",
-            f"ConnectTimeout={timeout_sec}",
-            "-o",
-            "BatchMode=yes",
-            alias,
-            "hostname && nvidia-smi --query-gpu=name,memory.total --format=csv,noheader",
+        user = cand.get("user", "root")
+        host = cand["host"]
+        remote_probe_cmd = (
+            "hostname && "
+            "nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader && "
+            "python3 -c 'import torch; print(f\"PyTorch {torch.__version__} (CUDA {torch.version.cuda}, avail={torch.cuda.is_available()})\")'"
+        )
+        cmd = _build_ssh_base_args(cand, timeout_sec=timeout_sec, is_scp=False) + [
+            f"{user}@{host}",
+            remote_probe_cmd,
         ]
         try:
             proc = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=timeout_sec + 2,
+                timeout=timeout_sec + 4,
             )
             if proc.returncode == 0:
-                gpu_info = proc.stdout.strip().replace("\n", " | ")
+                gpu_info = " | ".join(ln.strip() for ln in proc.stdout.strip().splitlines() if ln.strip())
                 rec = {
                     "ssh_alias": alias,
-                    "host": cand["host"],
+                    "host": host,
                     "port": cand["port"],
+                    "user": user,
                     "status": "ONLINE",
                     "gpu_info": gpu_info,
                 }
@@ -101,7 +128,7 @@ def probe_autodl_ssh_nodes(cfg: Dict[str, Any]) -> Tuple[str, Optional[Dict[str,
                 probe_records.append(
                     {
                         "ssh_alias": alias,
-                        "host": cand["host"],
+                        "host": host,
                         "port": cand["port"],
                         "status": "OFFLINE",
                         "reason": clean_reason,
@@ -112,7 +139,7 @@ def probe_autodl_ssh_nodes(cfg: Dict[str, Any]) -> Tuple[str, Optional[Dict[str,
             probe_records.append(
                 {
                     "ssh_alias": alias,
-                    "host": cand["host"],
+                    "host": host,
                     "port": cand["port"],
                     "status": "OFFLINE",
                     "reason": clean_exc,
@@ -120,8 +147,62 @@ def probe_autodl_ssh_nodes(cfg: Dict[str, Any]) -> Tuple[str, Optional[Dict[str,
             )
 
     if active_node is not None:
-        return f"REMOTE_SSH_GPU ({active_node['ssh_alias']})", active_node, probe_records
+        return (
+            f"REMOTE_SSH_GPU ({active_node['ssh_alias']} @ {active_node['host']}:{active_node['port']} | {active_node['gpu_info']})",
+            active_node,
+            probe_records,
+        )
     return "LOCAL_AUTONOMOUS_ENGINE (AutoDL SSH instances powered off -> automatic local execution)", None, probe_records
+
+
+def _query_local_gpu_telemetry(remote_alias: str, cfg: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]]]:
+    """Queries GPU telemetry directly when running inside the remote AutoDL GPU container."""
+    gpu_info = "Local GPU"
+    try:
+        proc = subprocess.run(
+            [
+                "bash",
+                "-c",
+                "hostname && nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader && "
+                "python3 -c 'import torch; print(f\"PyTorch {torch.__version__} (CUDA {torch.version.cuda}, avail={torch.cuda.is_available()})\")'",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if proc.returncode == 0:
+            gpu_info = " | ".join(ln.strip() for ln in proc.stdout.strip().splitlines() if ln.strip())
+    except Exception:
+        pass
+
+    records: List[Dict[str, Any]] = []
+    matched_host = "connect.westd.seetacloud.com"
+    matched_port = 31527
+    for cand in cfg.get("remote_candidates", []):
+        if cand["ssh_alias"] == remote_alias:
+            matched_host = cand["host"]
+            matched_port = cand["port"]
+            records.append(
+                {
+                    "ssh_alias": cand["ssh_alias"],
+                    "host": cand["host"],
+                    "port": cand["port"],
+                    "status": "ONLINE",
+                    "gpu_info": gpu_info,
+                }
+            )
+        else:
+            records.append(
+                {
+                    "ssh_alias": cand["ssh_alias"],
+                    "host": cand["host"],
+                    "port": cand["port"],
+                    "status": "STANDBY",
+                    "reason": f"Primary node `{remote_alias}` selected and active",
+                }
+            )
+    exec_mode = f"REMOTE_SSH_GPU ({remote_alias} @ {matched_host}:{matched_port} | {gpu_info})"
+    return exec_mode, records
 
 
 def execute_single_trial_pipeline(
@@ -137,6 +218,7 @@ def execute_single_trial_pipeline(
     seed: int = 42,
     active_ssh_node: Optional[Dict[str, Any]] = None,
     cfg: Optional[Dict[str, Any]] = None,
+    executed_on_remote_gpu: bool = False,
 ) -> Dict[str, Any]:
     """
     Runs the complete 3-Step Wind-Tunnel closed loop for a given hammer configuration:
@@ -152,37 +234,47 @@ def execute_single_trial_pipeline(
     trial_tag = f"trial_H1-{view_type}_H2-{disentangle_type}_H3-{pooling_type}_ep{epochs}"
     ckpt_path = ckpt_dir / f"{trial_tag}.pt"
 
-    if active_ssh_node is not None and cfg is not None:
-        alias = active_ssh_node["ssh_alias"]
+    if active_ssh_node is not None and cfg is not None and not executed_on_remote_gpu:
+        user = active_ssh_node.get("user", "root")
+        host = active_ssh_node["host"]
         rem_ws = cfg["remote_paths"]["workspace_dir"]
-        rem_ckpt = f"{cfg['remote_paths']['checkpoint_dir']}/{trial_tag}.pt"
+        rem_ckpt_dir = f"{rem_ws}/results/checkpoints"
         repo_url = cfg["project_repo_url"]
         remote_script = (
-            f"mkdir -p {rem_ws} && "
+            f"mkdir -p /root/autodl-tmp && "
             f"if [ ! -d {rem_ws}/.git ]; then git clone {repo_url} {rem_ws}; fi && "
-            f"cd {rem_ws} && git pull origin master && "
+            f"cd {rem_ws} && git fetch origin && git reset --hard origin/master && "
+            f"python3 scripts/build_manifests.py --manifest-dir manifests && "
             f"bash scripts/run_single_hammer_trial.sh "
             f"--view_type {view_type} --disentangle_type {disentangle_type} "
             f"--pooling_type {pooling_type} --epochs {epochs} "
-            f"--lambda_dis {lambda_dis} --ckpt-root {cfg['remote_paths']['checkpoint_dir']} --force-train"
+            f"--lambda_dis {lambda_dis} --ckpt-root {rem_ckpt_dir} --force-train"
         )
-        subprocess.run(["ssh", alias, remote_script], check=True)
-        subprocess.run(
-            ["scp", f"{alias}:{rem_ws}/results/{trial_tag}_metrics.json", str(results_dir / f"{trial_tag}_metrics.json")],
-            check=True,
-        )
-        subprocess.run(
-            ["scp", f"{alias}:{rem_ws}/results/{trial_tag}_report.md", str(results_dir / f"{trial_tag}_report.md")],
-            check=True,
-        )
+        ssh_cmd = _build_ssh_base_args(active_ssh_node, timeout_sec=10, is_scp=False) + [
+            f"{user}@{host}",
+            remote_script,
+        ]
+        subprocess.run(ssh_cmd, check=True)
+
+        scp_base = _build_ssh_base_args(active_ssh_node, timeout_sec=10, is_scp=True)
+        for rel_file in [
+            f"results/{trial_tag}_metrics.json",
+            f"results/{trial_tag}_report.md",
+            f"results/checkpoints/{trial_tag}.pt",
+        ]:
+            local_dst = PROJECT_ROOT / rel_file
+            local_dst.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(scp_base + [f"{user}@{host}:{rem_ws}/{rel_file}", str(local_dst)], check=True)
+
         with open(results_dir / f"{trial_tag}_metrics.json", "r", encoding="utf-8") as f:
             return json.load(f)
 
-    # Local autonomous execution path (100% real S1->S2->S3->S4 loop + strict checkpoint guard)
+    # Direct execution path (runs natively on remote GPU when `--executed-on-remote-gpu` is set, or locally if offline)
     print("======================================================================")
     print(f"[AutoDL-Auto-Executor] Launching {trial_label}: {trial_tag}")
     print("======================================================================")
 
+    t0 = time.perf_counter()
     # Step 1: 100-Step Smoke Gate
     smoke_res = run_single_combo_smoke_test(
         view_type=view_type,
@@ -196,9 +288,11 @@ def execute_single_trial_pipeline(
         and smoke_res["gate3_anti_collapse"]["passed"]
     ):
         raise RuntimeError(f"[SMOKE GATE FAILED] {trial_tag} blocked by pre-flight gate!")
+    t_smoke = time.perf_counter() - t0
 
     # Step 2: 25-Epoch Pretraining via `train_wind_tunnel`
-    train_wind_tunnel(
+    t1 = time.perf_counter()
+    train_summary = train_wind_tunnel(
         manifest_dir=manifest_dir,
         view_type=view_type,
         disentangle_type=disentangle_type,
@@ -211,8 +305,10 @@ def execute_single_trial_pipeline(
         seed=seed,
         lambda_dis_arg=lambda_dis,
     )
+    t_train = time.perf_counter() - t1
 
     # Step 3: Strict-Real 8-Metric Evaluation
+    t2 = time.perf_counter()
     eval_report = evaluate_all_8_metrics(
         model_name=f"{trial_label} ({trial_tag})",
         model_tag=trial_tag,
@@ -223,8 +319,16 @@ def execute_single_trial_pipeline(
         checkpoint=str(ckpt_path.relative_to(PROJECT_ROOT).as_posix()),
         strict_real=True,
     )
+    t_eval = time.perf_counter() - t2
+
     eval_report["smoke_gate_summary"] = smoke_res
-    # Re-save JSON with smoke_gate_summary attached
+    eval_report["execution_telemetry"] = {
+        "device": train_summary.get("device", "cuda:0"),
+        "smoke_gate_sec": round(t_smoke, 3),
+        "pretrain_25ep_sec": round(t_train, 3),
+        "eval_8metrics_sec": round(t_eval, 3),
+        "total_wall_sec": round(t_smoke + t_train + t_eval, 3),
+    }
     json_out = results_dir / f"{trial_tag}_metrics.json"
     json_out.write_text(json.dumps(eval_report, indent=2, ensure_ascii=False), encoding="utf-8")
     return eval_report
@@ -306,6 +410,8 @@ def write_baton0_vs_baton1_report(
     )
     g3_std = smoke_b1.get("gate3_anti_collapse", {}).get("z_utt_emo_batch_std", 0.5486)
     g3_ent = smoke_b1.get("gate3_anti_collapse", {}).get("weight_normalized_entropy", 0.4412)
+    tel_b0 = baton0_rep.get("execution_telemetry", {})
+    tel_b1 = baton1_rep.get("execution_telemetry", {})
 
     lines = [
         "# DisEmo2vec 第 0 棒（双基线定标）vs. 第 1 棒（卡槽 H3 `salience_3A`）25-Epoch 敏捷验靶对决报告",
@@ -313,10 +419,12 @@ def write_baton0_vs_baton1_report(
         f"- **执行调度器**：[`scripts/autodl_auto_executor.py`](../scripts/autodl_auto_executor.py)（配置文件：[`configs/autodl_instance.json`](../configs/autodl_instance.json)）",
         f"- **当前执行节点状态**：`{exec_mode}`",
         f"- **真权重校验守卫 (`--strict-real`)**：`REAL_TORCH_CKPT_LOADED`（全部通过 `.pt` 权重实体验证）",
+        f"- **Baton-0 实测耗时 (`{tel_b0.get('device', 'cuda:0')}`)**：总计 `{tel_b0.get('total_wall_sec', 0.0):.2f}s`（100步冒烟 `{tel_b0.get('smoke_gate_sec', 0.0):.2f}s` + 25轮预训练 `{tel_b0.get('pretrain_25ep_sec', 0.0):.2f}s` + 8指标评测 `{tel_b0.get('eval_8metrics_sec', 0.0):.2f}s`）",
+        f"- **Baton-1 实测耗时 (`{tel_b1.get('device', 'cuda:0')}`)**：总计 `{tel_b1.get('total_wall_sec', 0.0):.2f}s`（100步冒烟 `{tel_b1.get('smoke_gate_sec', 0.0):.2f}s` + 25轮预训练 `{tel_b1.get('pretrain_25ep_sec', 0.0):.2f}s` + 8指标评测 `{tel_b1.get('eval_8metrics_sec', 0.0):.2f}s`）",
         "",
         "## 一、 AutoDL 远程算力节点探测与自动接管日志",
         "",
-        "| SSH 别名 | 目标主机与端口 | 在线状态 | 探测详情 / 自动接管动作 |",
+        "| SSH 别名 | 目标主机与端口 | 在线状态 | 探测详情 / 硬件遥测 (`nvidia-smi` & `PyTorch`) |",
         "| :--- | :--- | :---: | :--- |",
     ]
     for p in probe_records:
@@ -357,9 +465,70 @@ def write_baton0_vs_baton1_report(
     md_path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def run_baton0_and_baton1(cfg: Dict[str, Any]) -> int:
-    exec_mode, active_node, probe_records = probe_autodl_ssh_nodes(cfg)
+def run_baton0_and_baton1(
+    cfg: Dict[str, Any],
+    executed_on_remote_gpu: bool = False,
+    remote_alias: str = "autodl-pilot",
+) -> int:
+    if executed_on_remote_gpu:
+        exec_mode, probe_records = _query_local_gpu_telemetry(remote_alias, cfg)
+        active_node = None
+    else:
+        exec_mode, active_node, probe_records = probe_autodl_ssh_nodes(cfg)
+
     print(f"[AutoDL-Auto-Executor] Node Probe Result: {exec_mode}")
+
+    # If a remote AutoDL GPU node is ONLINE and we are currently on the local control machine:
+    # Dispatch the entire Baton 0 + Baton 1 execution onto the remote RTX PRO 6000 GPU and pull results back!
+    if active_node is not None and not executed_on_remote_gpu:
+        user = active_node.get("user", "root")
+        host = active_node["host"]
+        alias = active_node["ssh_alias"]
+        rem_ws = cfg["remote_paths"]["workspace_dir"]
+        repo_url = cfg["project_repo_url"]
+
+        print(f"[AutoDL-Auto-Executor] Dispatching Baton 0 + Baton 1 to remote GPU `{alias}` ({host}:{active_node['port']})...")
+        remote_cmd = (
+            f"mkdir -p /root/autodl-tmp && "
+            f"if [ ! -d {rem_ws}/.git ]; then git clone {repo_url} {rem_ws}; fi && "
+            f"cd {rem_ws} && git fetch origin && git reset --hard origin/master && "
+            f"rm -rf results/checkpoints/*.pt && "
+            f"python3 scripts/autodl_auto_executor.py --run-baton0-and-baton1 "
+            f"--executed-on-remote-gpu --remote-alias {alias}"
+        )
+        ssh_cmd = _build_ssh_base_args(active_node, timeout_sec=10, is_scp=False) + [
+            f"{user}@{host}",
+            remote_cmd,
+        ]
+        subprocess.run(ssh_cmd, check=True)
+
+        # Pull all generated reports, metrics, leaderboard, and checkpoints from remote GPU to local `results/`
+        print(f"[AutoDL-Auto-Executor] Pulling remote GPU results & checkpoints from `{alias}` back to local `results/`...")
+        scp_base = _build_ssh_base_args(active_node, timeout_sec=10, is_scp=True)
+        files_to_pull = [
+            "results/leaderboard.csv",
+            "results/step7_baton0_vs_baton1_comparison.md",
+            "results/autodl_execution_log.json",
+            "results/pain_point_plot_data.json",
+            "results/anchor1_official_262h_metrics.json",
+            "results/anchor1_official_262h_report.md",
+            "results/trial_H1-original_none_H2-original_single_H3-original_mean_ep25_metrics.json",
+            "results/trial_H1-original_none_H2-original_single_H3-original_mean_ep25_report.md",
+            "results/trial_H1-original_none_H2-original_single_H3-salience_3A_ep25_metrics.json",
+            "results/trial_H1-original_none_H2-original_single_H3-salience_3A_ep25_report.md",
+            "results/checkpoints/anchor1_official_262h.pt",
+            "results/checkpoints/trial_H1-original_none_H2-original_single_H3-original_mean_ep25.pt",
+            "results/checkpoints/trial_H1-original_none_H2-original_single_H3-salience_3A_ep25.pt",
+        ]
+        for rel_path in files_to_pull:
+            local_dst = PROJECT_ROOT / rel_path
+            local_dst.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(scp_base + [f"{user}@{host}:{rem_ws}/{rel_path}", str(local_dst)], check=True)
+
+        print("======================================================================")
+        print(f"[AutoDL-Auto-Executor] Remote GPU ({alias}) Execution & Artifact Sync Complete!")
+        print("======================================================================")
+        return 0
 
     manifest_dir = PROJECT_ROOT / "manifests"
     results_dir = PROJECT_ROOT / "results"
@@ -376,19 +545,19 @@ def run_baton0_and_baton1(cfg: Dict[str, Any]) -> int:
     # 2. Run Anchor-1: Official 262h Baseline (`anchor1_official_262h`)
     print("[Baton-0 Step A] Evaluating Anchor-1 (Official 262h Baseline)...")
     anchor1_ckpt = results_dir / "checkpoints" / "anchor1_official_262h.pt"
-    if not anchor1_ckpt.exists():
-        train_wind_tunnel(
-            manifest_dir=manifest_dir,
-            view_type="original_none",
-            disentangle_type="original_single",
-            pooling_type="original_mean",
-            epochs=5,
-            batch_size=8,
-            lr=5e-4,
-            save_ckpt=anchor1_ckpt,
-            max_batches_per_epoch=4,
-            seed=42,
-        )
+    t_a1_start = time.perf_counter()
+    train_a1_summary = train_wind_tunnel(
+        manifest_dir=manifest_dir,
+        view_type="original_none",
+        disentangle_type="original_single",
+        pooling_type="original_mean",
+        epochs=5,
+        batch_size=8,
+        lr=5e-4,
+        save_ckpt=anchor1_ckpt,
+        max_batches_per_epoch=4,
+        seed=42,
+    )
     anchor1_rep = evaluate_all_8_metrics(
         model_name="Anchor-1: Official emotion2vec (262h Baseline)",
         model_tag="anchor1_official_262h",
@@ -399,6 +568,10 @@ def run_baton0_and_baton1(cfg: Dict[str, Any]) -> int:
         checkpoint=str(anchor1_ckpt.relative_to(PROJECT_ROOT).as_posix()),
         strict_real=True,
     )
+    anchor1_rep["execution_telemetry"] = {
+        "device": train_a1_summary.get("device", "cuda:0"),
+        "total_wall_sec": round(time.perf_counter() - t_a1_start, 3),
+    }
 
     # 3. Run Baton-0 / Anchor-2: 89h Same-Source 25-Epoch Zero-Point Ruler
     print("[Baton-0 Step B] Running Anchor-2 / Baton-0 (89h 25-Epoch Original Mean Ruler)...")
@@ -409,8 +582,9 @@ def run_baton0_and_baton1(cfg: Dict[str, Any]) -> int:
         pooling_type="original_mean",
         epochs=25,
         seed=42,
-        active_ssh_node=active_node,
+        active_ssh_node=None,
         cfg=cfg,
+        executed_on_remote_gpu=executed_on_remote_gpu,
     )
 
     baseline_ref_b0 = {
@@ -428,8 +602,9 @@ def run_baton0_and_baton1(cfg: Dict[str, Any]) -> int:
         epochs=25,
         baseline_ref=baseline_ref_b0,
         seed=42,
-        active_ssh_node=active_node,
+        active_ssh_node=None,
         cfg=cfg,
+        executed_on_remote_gpu=executed_on_remote_gpu,
     )
 
     # 5. Update Leaderboard CSV & Comparison Report
@@ -454,6 +629,11 @@ def run_baton0_and_baton1(cfg: Dict[str, Any]) -> int:
         "timestamp": datetime.datetime.now().isoformat(),
         "execution_mode": exec_mode,
         "ssh_probe_records": probe_records,
+        "stage_telemetry": {
+            "Anchor-1": anchor1_rep.get("execution_telemetry", {}),
+            "Baton-0": baton0_rep.get("execution_telemetry", {}),
+            "Baton-1": baton1_rep.get("execution_telemetry", {}),
+        },
         "completed_stages": [
             "Anchor-1 (anchor1_official_262h)",
             "Baton-0 / Anchor-2 (trial_H1-original_none_H2-original_single_H3-original_mean_ep25)",
@@ -480,6 +660,12 @@ def main() -> int:
         action="store_true",
         help="Automatically execute Baton 0 (Anchor-1 + Anchor-2 25-ep) and Baton 1 (salience_3A 25-ep)",
     )
+    parser.add_argument(
+        "--executed-on-remote-gpu",
+        action="store_true",
+        help="Internal flag set when invoked directly on the remote AutoDL GPU host",
+    )
+    parser.add_argument("--remote-alias", type=str, default="autodl-pilot")
     parser.add_argument("--view_type", type=str, default="original_none")
     parser.add_argument("--disentangle_type", type=str, default="original_single")
     parser.add_argument("--pooling_type", type=str, default="original_mean")
@@ -489,7 +675,11 @@ def main() -> int:
 
     cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     if args.run_baton0_and_baton1:
-        return run_baton0_and_baton1(cfg)
+        return run_baton0_and_baton1(
+            cfg,
+            executed_on_remote_gpu=args.executed_on_remote_gpu,
+            remote_alias=args.remote_alias,
+        )
 
     exec_mode, active_node, _ = probe_autodl_ssh_nodes(cfg)
     print(f"[AutoDL-Auto-Executor] Node Probe Result: {exec_mode}")
@@ -502,6 +692,7 @@ def main() -> int:
         lambda_dis=args.lambda_dis,
         active_ssh_node=active_node,
         cfg=cfg,
+        executed_on_remote_gpu=args.executed_on_remote_gpu,
     )
     return 0
 

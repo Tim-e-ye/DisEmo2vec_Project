@@ -238,7 +238,7 @@ def train_wind_tunnel(
         if trainable_params:
             optimizer = torch.optim.AdamW(trainable_params, lr=lr, weight_decay=0.01)
         if use_torch_cuda:
-            scaler = torch.cuda.amp.GradScaler(enabled=True)
+            scaler = torch.amp.GradScaler("cuda", enabled=True)
 
     # =========================================================================
     # 3. Execute Training Loop Across Epochs
@@ -318,7 +318,7 @@ def train_wind_tunnel(
                     optimizer.zero_grad(set_to_none=True)
 
                 if use_torch_cuda and scaler is not None:
-                    with torch.cuda.amp.autocast(dtype=torch.float16):
+                    with torch.amp.autocast("cuda", dtype=torch.float16):
                         out = model.forward(
                             source_frames=s_in,
                             target_layer_results=t_in,

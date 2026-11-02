@@ -273,13 +273,12 @@ class HammerSlotH2_Disentangler(BaseModule):
         self.use_max_entropy_uniform_kl = bool(use_max_entropy_uniform_kl)
         self.lambda_dis = float(lambda_dis)
 
+        rng = np.random.default_rng(42)
+        self.sponge_w_np = (rng.standard_normal((self.embed_dim, self.num_phoneme_clusters)) * 0.02).astype(np.float32)
         if HAS_TORCH:
             self.sponge_head_wc = nn.Linear(self.embed_dim, self.num_phoneme_clusters)
-            self.sponge_w_np = None
         else:
             self.sponge_head_wc = None
-            rng = np.random.default_rng(42)
-            self.sponge_w_np = (rng.standard_normal((self.embed_dim, self.num_phoneme_clusters)) * 0.02).astype(np.float32)
 
     def split_and_pool_chunks(self, chunk_tokens: Any, disentangle_type: Optional[str] = None) -> Tuple[Any, Any]:
         mode = disentangle_type or self.active_card

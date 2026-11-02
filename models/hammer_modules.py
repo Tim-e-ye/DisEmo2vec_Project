@@ -111,17 +111,16 @@ class PluggableDisEmo2vecFrontend(BaseModule):
         self.embed_dim = int(self.cfg.embed_dim)
         self.num_chunk_tokens = int(self.cfg.num_chunk_tokens)
 
+        rng = np.random.default_rng(42)
+        self.chunk_tokens_np = (
+            rng.standard_normal((1, self.num_chunk_tokens, self.embed_dim)) * 0.02
+        ).astype(np.float32)
         if HAS_TORCH:
             self.chunk_tokens = nn.Parameter(
-                torch.randn(1, self.num_chunk_tokens, self.embed_dim) * 0.02,
+                torch.from_numpy(self.chunk_tokens_np.copy()),
                 requires_grad=True,
             )
             self.encoder_proj = nn.Linear(self.embed_dim, self.embed_dim)
-        else:
-            rng = np.random.default_rng(42)
-            self.chunk_tokens_np = (
-                rng.standard_normal((1, self.num_chunk_tokens, self.embed_dim)) * 0.02
-            ).astype(np.float32)
 
     def forward_student_backbone(self, student_x: Any) -> Tuple[Any, Any, Any]:
         """
@@ -131,7 +130,7 @@ class PluggableDisEmo2vecFrontend(BaseModule):
         """
         if HAS_TORCH and isinstance(student_x, torch.Tensor):
             bsz = student_x.shape[0]
-            chunks = self.chunk_tokens.expand(bsz, -1, -1)
+            chunks = self.chunk_tokens.expand(bsz, -1, -1) + student_x[:, : self.num_chunk_tokens, :]
             concat_seq = torch.cat([chunks, student_x], dim=1)
             encoded = self.encoder_proj(concat_seq)
             encoded_chunks = encoded[:, : self.num_chunk_tokens, :]

@@ -94,16 +94,16 @@ def salience_pooling_3A(
             pad_bool = None
             y_bar = y_t.mean(dim=1, keepdim=True)
 
-        deviation_d = torch.norm(y_t - y_bar, p=2, dim=-1)
-        voiced_gate = torch.sigmoid(frame_energy)
+        deviation_d = torch.norm(y_t.float() - y_bar.float(), p=2, dim=-1)
+        voiced_gate = torch.sigmoid(frame_energy.float())
         salience_s = voiced_gate * deviation_d
-        scaled_logits = salience_s / max(temperature_tau_s, 1e-4)
+        scaled_logits = (salience_s / max(temperature_tau_s, 1e-4)).float()
 
-        # 【叮嘱 1】：将 Padding 帧打分设为 -1e9，确保 Softmax 后 Padding 帧权重 w_i = 0
+        # 【叮嘱 1】：将 Padding 帧打分设为 -1e9（先转 FP32 严防 FP16 下 -1e9 溢出），确保 Softmax 后 Padding 帧权重 w_i = 0
         if pad_bool is not None:
             scaled_logits = scaled_logits.masked_fill(pad_bool, -1e9)
 
-        weights_w = F.softmax(scaled_logits, dim=-1).detach()
+        weights_w = F.softmax(scaled_logits, dim=-1).to(y_t.dtype).detach()
         if pad_bool is not None:
             weights_w = weights_w.masked_fill(pad_bool, 0.0)
         target_utt = torch.sum(weights_w.unsqueeze(-1) * y_t, dim=1).detach()

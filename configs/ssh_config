@@ -1,0 +1,10 @@
+Host autodl-pilot
+    HostName connect.westd.seetacloud.com
+    Port 31527
+    User root
+    IdentityFile ~/.ssh/id_ed25519
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+    ServerAliveInterval 10
+    ServerAliveCountMax 3
+    TCPKeepAlive yes
