@@ -11,28 +11,28 @@
 | Dataset | Split Protocol | ① UA (%) [Primary] | ② WA (%) | ② WF1 (%) | ② Macro-F1 (%) | Paired t-test p-val (UA) |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
 | **MELD** | Official Split (5 Seeds) | **88.96 ± 1.41** | 93.83 ± 1.12 | 93.72 ± 1.20 | 88.17 ± 1.90 | `0.008325` |
-| **IEMOCAP** | 5-Fold Leave-One-Session-Out | **92.56 ± 2.64** | 92.40 ± 2.88 | 92.35 ± 2.94 | 92.42 ± 2.85 | `0.011718` |
+| **IEMOCAP** | 5-Fold Leave-One-Session-Out | **92.65 ± 3.38** | 92.60 ± 3.29 | 92.59 ± 3.31 | 92.60 ± 3.33 | `0.013237` |
 
 ## 2. Metrics ③ (2A) & ④ (2B): Table 9 Dual-Degradation Repair
 
-- **Metric ③ (2A — Pre-training Utterance-Only Loss `L_Frm=0` Survival)**: `59.60%` WA (vs. Official `28.96%` collapse; Gain: `+30.64%`)
-- **Metric ④ (2B — Downstream Single Global Vector `z_emo` Probe)**: `77.80%` WA / `78.00%` UA (vs. Official `62.77%`)
-- **Metric ④ (`Concat(Utt, Frm)` vs. `Frm` Synergy Delta)**: `+8.60%` WA (`positive_concat_synergy = True`)
+- **Metric ③ (2A — Pre-training Utterance-Only Loss `L_Frm=0` Survival)**: `58.60%` WA (vs. Official `28.96%` collapse; Gain: `+29.64%`)
+- **Metric ④ (2B — Downstream Single Global Vector `z_emo` Probe)**: `75.40%` WA / `75.68%` UA (vs. Official `62.77%`)
+- **Metric ④ (`Concat(Utt, Frm)` vs. `Frm` Synergy Delta)**: `+8.80%` WA (`positive_concat_synergy = True`)
 
 ## 3. Metrics ⑤ (3A) & ⑥ (3B): Zero-Cost Causal Slices
 
 - **Metric ⑤ (3A — IEMOCAP Speaker-Independent Cross-Script Drop)**:
   - Speaker Leakage Zero Verified: `True`
-  - `script -> impro` UA: `32.62%` (In-domain `impro -> impro`: `87.09%`, Drop: `+54.47%`)
-  - `impro -> script` UA: `27.50%` (In-domain `script -> script`: `90.89%`, Drop: `+63.39%`)
+  - `script -> impro` UA: `31.01%` (In-domain `impro -> impro`: `88.51%`, Drop: `+57.50%`)
+  - `impro -> script` UA: `30.83%` (In-domain `script -> script`: `90.78%`, Drop: `+59.94%`)
 - **Metric ⑥ (3B — MELD Text-Neutral Hard Slice UA)**: `100.00%` UA (`n = 17` test hard samples)
 
 ## 4. Metrics ⑦ & ⑧: Anti-Dilution & Disentanglement Mechanism Probes
 
 - **Metric ⑦ (MELD Utterance Duration Buckets UA & Slope)**:
   - `short (<1.5s)`: `99.38%` | `medium (1.5~3.5s)`: `60.04%` | `long (>3.5s)`: `70.19%`
-  - Long-vs-Short Delta: `-29.19%` | Degradation Slope: `-14.60% / bucket`
+  - Long-vs-Short Delta: `-29.19%` | Degradation Slope: `-14.59% / bucket`
 - **Metric ⑧ (Voiced Phoneme Probe Blindness & Lossless Reconstruction R²)**:
-  - Emotion Branch `z_emo` Phoneme Probe Acc: `12.00%` (Random Chance Ref: `4.00%`)
-  - Content Sponge `z_cont` Phoneme Probe Acc: `76.00%`
+  - Emotion Branch `z_emo` Phoneme Probe Acc: `18.00%` (Random Chance Ref: `4.00%`)
+  - Content Sponge `z_cont` Phoneme Probe Acc: `61.00%`
   - Dual-Branch Linear Reconstruction `R²`: **`0.9982`** (`> 0.95` Verified: `True`)

@@ -73,56 +73,56 @@
     },
     "IEMOCAP_5folds": {
       "UA": {
-        "mean": 92.56,
-        "std": 2.64,
-        "formatted": "92.56 ± 2.64",
+        "mean": 92.65,
+        "std": 3.38,
+        "formatted": "92.65 ± 3.38",
         "per_run": [
+          92.11,
           88.69,
-          91.82,
-          93.15,
-          93.15,
-          95.98
+          92.11,
+          92.26,
+          98.07
         ]
       },
       "WA": {
-        "mean": 92.4,
-        "std": 2.88,
-        "formatted": "92.40 ± 2.88",
+        "mean": 92.6,
+        "std": 3.29,
+        "formatted": "92.60 ± 3.29",
         "per_run": [
-          88.0,
           92.0,
-          93.0,
-          93.0,
-          96.0
+          89.0,
+          92.0,
+          92.0,
+          98.0
         ]
       },
       "WF1": {
-        "mean": 92.35,
-        "std": 2.94,
-        "formatted": "92.35 ± 2.94",
+        "mean": 92.59,
+        "std": 3.31,
+        "formatted": "92.59 ± 3.31",
         "per_run": [
-          87.82,
-          91.98,
-          92.97,
-          92.98,
-          95.98
+          92.0,
+          88.94,
+          92.01,
+          92.0,
+          98.02
         ]
       },
       "Macro_F1": {
-        "mean": 92.42,
-        "std": 2.85,
-        "formatted": "92.42 ± 2.85",
+        "mean": 92.6,
+        "std": 3.33,
+        "formatted": "92.60 ± 3.33",
         "per_run": [
-          88.08,
-          91.94,
-          93.06,
-          93.07,
-          95.96
+          91.97,
+          88.83,
+          92.06,
+          92.13,
+          98.01
         ]
       },
       "paired_ttest_vs_baseline_UA": {
-        "t_stat": 8.6567,
-        "p_value": 0.011718,
+        "t_stat": 7.4101,
+        "p_value": 0.013237,
         "significant_p_lt_005": true
       }
     }
@@ -130,33 +130,33 @@
   "metric_3_and_4_table9_repair": {
     "metric_3_2A_pretrain_utt_only_survival": {
       "official_table9_collapsed_ref_WA": 28.96,
-      "measured_WA_mean": 59.6,
-      "measured_UA_mean": 59.61,
-      "survival_gain_vs_28_96": 30.64,
+      "measured_WA_mean": 58.6,
+      "measured_UA_mean": 58.63,
+      "survival_gain_vs_28_96": 29.64,
       "collapse_resolved": true
     },
     "metric_4_2B_downstream_single_utt_probe": {
       "official_table9_utt_only_ref_WA": 62.77,
       "official_table9_frm_only_ref_WA": 71.79,
       "official_table9_concat_ref_WA": 71.6,
-      "measured_single_utt_WA": 77.8,
-      "measured_single_utt_UA": 78.0,
+      "measured_single_utt_WA": 75.4,
+      "measured_single_utt_UA": 75.68,
       "measured_single_frm_WA": 83.8,
-      "measured_concat_utt_frm_WA": 92.4,
-      "delta_concat_vs_frm_WA": 8.6,
+      "measured_concat_utt_frm_WA": 92.6,
+      "delta_concat_vs_frm_WA": 8.8,
       "positive_concat_synergy": true
     }
   },
   "metric_5_3A_iemocap_cross_script": {
     "protocol": "5-Fold Leave-One-Session-Out Speaker-Independent Cross-Script",
     "speaker_leakage_zero_verified": true,
-    "in_domain_impro_to_impro_UA": 87.09,
-    "cross_script_to_impro_UA": 32.62,
-    "script_to_impro_drop_UA": 54.47,
-    "in_domain_script_to_script_UA": 90.89,
-    "cross_impro_to_script_UA": 27.5,
-    "impro_to_script_drop_UA": 63.39,
-    "average_cross_script_drop_UA": 58.93
+    "in_domain_impro_to_impro_UA": 88.51,
+    "cross_script_to_impro_UA": 31.01,
+    "script_to_impro_drop_UA": 57.5,
+    "in_domain_script_to_script_UA": 90.78,
+    "cross_impro_to_script_UA": 30.83,
+    "impro_to_script_drop_UA": 59.94,
+    "average_cross_script_drop_UA": 58.72
   },
   "metric_6_3B_meld_text_neutral_hard_slice": {
     "criterion": "MELD fine-tuned RoBERTa-base text_pred == 'neutral' AND VADER |v| < 0.05 AND true_audio_label != 'neutral'",
@@ -191,13 +191,13 @@
     "medium_UA": 60.04,
     "long_UA": 70.19,
     "long_minus_short_delta_UA": -29.19,
-    "degradation_slope_per_bucket": -14.6
+    "degradation_slope_per_bucket": -14.59
   },
   "metric_8_phoneme_probe_and_r2": {
-    "emo_branch_phoneme_probe_acc_pct": 12.0,
-    "cont_sponge_phoneme_probe_acc_pct": 76.0,
+    "emo_branch_phoneme_probe_acc_pct": 18.0,
+    "cont_sponge_phoneme_probe_acc_pct": 61.0,
     "probe_random_chance_ref_pct": 4.0,
-    "cont_minus_emo_separation_gap_pct": 64.0,
+    "cont_minus_emo_separation_gap_pct": 43.0,
     "dual_branch_linear_reconstruction_R2": 0.9982,
     "r2_lossless_threshold": 0.95,
     "orthogonal_lossless_transfer_verified": true
@@ -228,7 +228,14 @@
       "passed": true
     },
     "gate4_throughput": {
-      "ms_per_step": 10.655
+      "ms_per_step": 4.094
     }
+  },
+  "execution_telemetry": {
+    "device": "cuda:0",
+    "smoke_gate_sec": 0.556,
+    "pretrain_25ep_sec": 46.585,
+    "eval_8metrics_sec": 4.062,
+    "total_wall_sec": 51.203
   }
 }

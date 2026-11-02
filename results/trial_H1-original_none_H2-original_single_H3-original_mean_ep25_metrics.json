@@ -68,51 +68,51 @@
     },
     "IEMOCAP_5folds": {
       "UA": {
-        "mean": 83.42,
-        "std": 3.44,
-        "formatted": "83.42 ± 3.44",
+        "mean": 83.39,
+        "std": 3.58,
+        "formatted": "83.39 ± 3.58",
         "per_run": [
-          79.76,
-          83.78,
+          80.65,
+          81.85,
           80.06,
-          86.31,
-          87.2
+          86.46,
+          87.95
         ]
       },
       "WA": {
         "mean": 83.2,
-        "std": 3.56,
-        "formatted": "83.20 ± 3.56",
+        "std": 3.63,
+        "formatted": "83.20 ± 3.63",
         "per_run": [
-          79.0,
-          84.0,
+          80.0,
+          82.0,
           80.0,
           86.0,
-          87.0
+          88.0
         ]
       },
       "WF1": {
-        "mean": 83.07,
-        "std": 3.64,
-        "formatted": "83.07 ± 3.64",
+        "mean": 83.14,
+        "std": 3.66,
+        "formatted": "83.14 ± 3.66",
         "per_run": [
-          78.6,
-          84.07,
-          79.94,
-          85.96,
-          86.79
+          79.72,
+          81.95,
+          80.12,
+          85.88,
+          88.02
         ]
       },
       "Macro_F1": {
-        "mean": 83.15,
-        "std": 3.54,
-        "formatted": "83.15 ± 3.54",
+        "mean": 83.26,
+        "std": 3.64,
+        "formatted": "83.26 ± 3.64",
         "per_run": [
-          78.92,
-          84.04,
-          80.0,
-          86.02,
-          86.79
+          79.98,
+          81.97,
+          80.18,
+          86.22,
+          87.97
         ]
       }
     }
@@ -129,8 +129,8 @@
       "official_table9_utt_only_ref_WA": 62.77,
       "official_table9_frm_only_ref_WA": 71.79,
       "official_table9_concat_ref_WA": 71.6,
-      "measured_single_utt_WA": 60.6,
-      "measured_single_utt_UA": 60.77,
+      "measured_single_utt_WA": 57.0,
+      "measured_single_utt_UA": 57.23,
       "measured_single_frm_WA": 79.0,
       "measured_concat_utt_frm_WA": 83.2,
       "delta_concat_vs_frm_WA": 4.2,
@@ -140,13 +140,13 @@
   "metric_5_3A_iemocap_cross_script": {
     "protocol": "5-Fold Leave-One-Session-Out Speaker-Independent Cross-Script",
     "speaker_leakage_zero_verified": true,
-    "in_domain_impro_to_impro_UA": 80.6,
-    "cross_script_to_impro_UA": 8.87,
-    "script_to_impro_drop_UA": 71.73,
-    "in_domain_script_to_script_UA": 87.68,
-    "cross_impro_to_script_UA": 7.44,
-    "impro_to_script_drop_UA": 80.24,
-    "average_cross_script_drop_UA": 75.98
+    "in_domain_impro_to_impro_UA": 85.0,
+    "cross_script_to_impro_UA": 7.86,
+    "script_to_impro_drop_UA": 77.14,
+    "in_domain_script_to_script_UA": 86.01,
+    "cross_impro_to_script_UA": 8.09,
+    "impro_to_script_drop_UA": 77.92,
+    "average_cross_script_drop_UA": 77.53
   },
   "metric_6_3B_meld_text_neutral_hard_slice": {
     "criterion": "MELD fine-tuned RoBERTa-base text_pred == 'neutral' AND VADER |v| < 0.05 AND true_audio_label != 'neutral'",
@@ -184,10 +184,10 @@
     "degradation_slope_per_bucket": -15.06
   },
   "metric_8_phoneme_probe_and_r2": {
-    "emo_branch_phoneme_probe_acc_pct": 22.0,
-    "cont_sponge_phoneme_probe_acc_pct": 76.0,
+    "emo_branch_phoneme_probe_acc_pct": 29.0,
+    "cont_sponge_phoneme_probe_acc_pct": 61.0,
     "probe_random_chance_ref_pct": 4.0,
-    "cont_minus_emo_separation_gap_pct": 54.0,
+    "cont_minus_emo_separation_gap_pct": 32.0,
     "dual_branch_linear_reconstruction_R2": 0.9983,
     "r2_lossless_threshold": 0.95,
     "orthogonal_lossless_transfer_verified": true
@@ -218,7 +218,14 @@
       "passed": true
     },
     "gate4_throughput": {
-      "ms_per_step": 3.497
+      "ms_per_step": 1.211
     }
+  },
+  "execution_telemetry": {
+    "device": "cuda:0",
+    "smoke_gate_sec": 0.262,
+    "pretrain_25ep_sec": 48.692,
+    "eval_8metrics_sec": 4.023,
+    "total_wall_sec": 52.977
   }
 }

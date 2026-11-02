@@ -1,29 +1,49 @@
 {
-  "timestamp": "2026-11-02T17:44:44.412726",
-  "execution_mode": "LOCAL_AUTONOMOUS_ENGINE (AutoDL SSH instances powered off -> automatic local execution)",
+  "timestamp": "2026-11-02T18:32:33.761455",
+  "execution_mode": "REMOTE_SSH_GPU (autodl-pilot @ connect.westd.seetacloud.com:31527 | autodl-pro-79363e4a3db9 | NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887 MiB, 595.71.05 | PyTorch 2.8.0+cu128 (CUDA 12.8, avail=True))",
   "ssh_probe_records": [
+    {
+      "ssh_alias": "autodl-pilot",
+      "host": "connect.westd.seetacloud.com",
+      "port": 31527,
+      "status": "ONLINE",
+      "gpu_info": "autodl-pro-79363e4a3db9 | NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887 MiB, 595.71.05 | PyTorch 2.8.0+cu128 (CUDA 12.8, avail=True)"
+    },
     {
       "ssh_alias": "autodl-audio",
       "host": "116.172.94.204",
       "port": 38950,
-      "status": "OFFLINE",
-      "reason": "Connection timed out during banner exchange | Connection to 116.172.94.204 port 38950 timed out"
+      "status": "STANDBY",
+      "reason": "Primary node `autodl-pilot` selected and active"
     },
     {
       "ssh_alias": "autodl-pro",
       "host": "116.172.94.204",
       "port": 18043,
-      "status": "OFFLINE",
-      "reason": "Connection timed out during banner exchange | Connection to 116.172.94.204 port 18043 timed out"
-    },
-    {
-      "ssh_alias": "AutoDL-Research",
-      "host": "connect.bjb2.seetacloud.com",
-      "port": 29466,
-      "status": "OFFLINE",
-      "reason": "Connection timed out during banner exchange | Connection to 198.18.0.27 port 29466 timed out"
+      "status": "STANDBY",
+      "reason": "Primary node `autodl-pilot` selected and active"
     }
   ],
+  "stage_telemetry": {
+    "Anchor-1": {
+      "device": "cuda:0",
+      "total_wall_sec": 18.481
+    },
+    "Baton-0": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 0.262,
+      "pretrain_25ep_sec": 48.692,
+      "eval_8metrics_sec": 4.023,
+      "total_wall_sec": 52.977
+    },
+    "Baton-1": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 0.556,
+      "pretrain_25ep_sec": 46.585,
+      "eval_8metrics_sec": 4.062,
+      "total_wall_sec": 51.203
+    }
+  },
   "completed_stages": [
     "Anchor-1 (anchor1_official_262h)",
     "Baton-0 / Anchor-2 (trial_H1-original_none_H2-original_single_H3-original_mean_ep25)",

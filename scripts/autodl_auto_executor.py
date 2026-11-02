@@ -40,6 +40,8 @@ import datetime
 import json
 import subprocess
 import sys
+import tarfile
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -84,7 +86,7 @@ def probe_autodl_ssh_nodes(cfg: Dict[str, Any]) -> Tuple[str, Optional[Dict[str,
     Probes each configured AutoDL SSH node with a fast timeout.
     Returns `(execution_mode, active_node_or_none, probe_records)`.
     """
-    timeout_sec = int(cfg.get("ssh_connect_timeout_sec", 4))
+    timeout_sec = int(cfg.get("ssh_connect_timeout_sec", 8))
     probe_records: List[Dict[str, Any]] = []
     active_node: Optional[Dict[str, Any]] = None
 
@@ -94,8 +96,7 @@ def probe_autodl_ssh_nodes(cfg: Dict[str, Any]) -> Tuple[str, Optional[Dict[str,
         host = cand["host"]
         remote_probe_cmd = (
             "hostname && "
-            "nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader && "
-            "python3 -c 'import torch; print(f\"PyTorch {torch.__version__} (CUDA {torch.version.cuda}, avail={torch.cuda.is_available()})\")'"
+            "nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader"
         )
         cmd = _build_ssh_base_args(cand, timeout_sec=timeout_sec, is_scp=False) + [
             f"{user}@{host}",
@@ -106,7 +107,7 @@ def probe_autodl_ssh_nodes(cfg: Dict[str, Any]) -> Tuple[str, Optional[Dict[str,
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=timeout_sec + 4,
+                timeout=timeout_sec + 10,
             )
             if proc.returncode == 0:
                 gpu_info = " | ".join(ln.strip() for ln in proc.stdout.strip().splitlines() if ln.strip())
@@ -168,7 +169,7 @@ def _query_local_gpu_telemetry(remote_alias: str, cfg: Dict[str, Any]) -> Tuple[
             ],
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=25,
         )
         if proc.returncode == 0:
             gpu_info = " | ".join(ln.strip() for ln in proc.stdout.strip().splitlines() if ln.strip())
@@ -205,6 +206,51 @@ def _query_local_gpu_telemetry(remote_alias: str, cfg: Dict[str, Any]) -> Tuple[
     return exec_mode, records
 
 
+def _sync_code_to_remote(active_ssh_node: Dict[str, Any], rem_ws: str) -> None:
+    """
+    Directly packages local source directories into a lightweight tar.gz archive and syncs
+    over SCP to `rem_ws` on the remote AutoDL GPU host. Avoids GFW/GitHub TLS connection
+    resets on domestic AutoDL nodes while guaranteeing 100% byte-for-byte code identity.
+    """
+    user = active_ssh_node.get("user", "root")
+    host = active_ssh_node["host"]
+    include_items = [
+        "configs",
+        "docs",
+        "eval",
+        "models",
+        "scripts",
+        "src",
+        "tools",
+        "README.md",
+        "requirements.txt",
+    ]
+    with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp_f:
+        tar_path = Path(tmp_f.name)
+
+    try:
+        with tarfile.open(tar_path, "w:gz") as tf:
+            for item in include_items:
+                p = PROJECT_ROOT / item
+                if p.exists():
+                    tf.add(p, arcname=item, filter=lambda ti: None if "__pycache__" in ti.name else ti)
+
+        scp_cmd = _build_ssh_base_args(active_ssh_node, timeout_sec=10, is_scp=True) + [
+            str(tar_path),
+            f"{user}@{host}:/tmp/disemo2vec_sync.tar.gz",
+        ]
+        subprocess.run(scp_cmd, check=True)
+
+        ssh_cmd = _build_ssh_base_args(active_ssh_node, timeout_sec=10, is_scp=False) + [
+            f"{user}@{host}",
+            f"mkdir -p {rem_ws} && tar -xzf /tmp/disemo2vec_sync.tar.gz -C {rem_ws} && rm -f /tmp/disemo2vec_sync.tar.gz",
+        ]
+        subprocess.run(ssh_cmd, check=True)
+    finally:
+        if tar_path.exists():
+            tar_path.unlink()
+
+
 def execute_single_trial_pipeline(
     trial_label: str,
     view_type: str,
@@ -239,11 +285,9 @@ def execute_single_trial_pipeline(
         host = active_ssh_node["host"]
         rem_ws = cfg["remote_paths"]["workspace_dir"]
         rem_ckpt_dir = f"{rem_ws}/results/checkpoints"
-        repo_url = cfg["project_repo_url"]
+        _sync_code_to_remote(active_ssh_node, rem_ws)
         remote_script = (
-            f"mkdir -p /root/autodl-tmp && "
-            f"if [ ! -d {rem_ws}/.git ]; then git clone {repo_url} {rem_ws}; fi && "
-            f"cd {rem_ws} && git fetch origin && git reset --hard origin/master && "
+            f"cd {rem_ws} && "
             f"python3 scripts/build_manifests.py --manifest-dir manifests && "
             f"bash scripts/run_single_hammer_trial.sh "
             f"--view_type {view_type} --disentangle_type {disentangle_type} "
@@ -260,7 +304,6 @@ def execute_single_trial_pipeline(
         for rel_file in [
             f"results/{trial_tag}_metrics.json",
             f"results/{trial_tag}_report.md",
-            f"results/checkpoints/{trial_tag}.pt",
         ]:
             local_dst = PROJECT_ROOT / rel_file
             local_dst.parent.mkdir(parents=True, exist_ok=True)
@@ -485,13 +528,13 @@ def run_baton0_and_baton1(
         host = active_node["host"]
         alias = active_node["ssh_alias"]
         rem_ws = cfg["remote_paths"]["workspace_dir"]
-        repo_url = cfg["project_repo_url"]
+
+        print(f"[AutoDL-Auto-Executor] Syncing code via direct SCP tarball to `{alias}` ({host}:{active_node['port']})...")
+        _sync_code_to_remote(active_node, rem_ws)
 
         print(f"[AutoDL-Auto-Executor] Dispatching Baton 0 + Baton 1 to remote GPU `{alias}` ({host}:{active_node['port']})...")
         remote_cmd = (
-            f"mkdir -p /root/autodl-tmp && "
-            f"if [ ! -d {rem_ws}/.git ]; then git clone {repo_url} {rem_ws}; fi && "
-            f"cd {rem_ws} && git fetch origin && git reset --hard origin/master && "
+            f"cd {rem_ws} && "
             f"rm -rf results/checkpoints/*.pt && "
             f"python3 scripts/autodl_auto_executor.py --run-baton0-and-baton1 "
             f"--executed-on-remote-gpu --remote-alias {alias}"
@@ -502,23 +545,21 @@ def run_baton0_and_baton1(
         ]
         subprocess.run(ssh_cmd, check=True)
 
-        # Pull all generated reports, metrics, leaderboard, and checkpoints from remote GPU to local `results/`
-        print(f"[AutoDL-Auto-Executor] Pulling remote GPU results & checkpoints from `{alias}` back to local `results/`...")
+        # Pull all generated lightweight reports, metrics, and leaderboard from remote GPU to local `results/`
+        # (Large `.pt` checkpoints remain on AutoDL `/root/autodl-tmp/` and are excluded from local sync & Git)
+        print(f"[AutoDL-Auto-Executor] Pulling remote GPU reports & metrics from `{alias}` back to local `results/`...")
         scp_base = _build_ssh_base_args(active_node, timeout_sec=10, is_scp=True)
         files_to_pull = [
             "results/leaderboard.csv",
             "results/step7_baton0_vs_baton1_comparison.md",
             "results/autodl_execution_log.json",
-            "results/pain_point_plot_data.json",
+            "results/anchor1_official_262h_pain_point_plots.json",
             "results/anchor1_official_262h_metrics.json",
             "results/anchor1_official_262h_report.md",
             "results/trial_H1-original_none_H2-original_single_H3-original_mean_ep25_metrics.json",
             "results/trial_H1-original_none_H2-original_single_H3-original_mean_ep25_report.md",
             "results/trial_H1-original_none_H2-original_single_H3-salience_3A_ep25_metrics.json",
             "results/trial_H1-original_none_H2-original_single_H3-salience_3A_ep25_report.md",
-            "results/checkpoints/anchor1_official_262h.pt",
-            "results/checkpoints/trial_H1-original_none_H2-original_single_H3-original_mean_ep25.pt",
-            "results/checkpoints/trial_H1-original_none_H2-original_single_H3-salience_3A_ep25.pt",
         ]
         for rel_path in files_to_pull:
             local_dst = PROJECT_ROOT / rel_path

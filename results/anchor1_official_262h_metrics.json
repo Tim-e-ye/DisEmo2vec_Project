@@ -1,9 +1,16 @@
 {
   "model_name": "Anchor-1: Official emotion2vec (262h Baseline)",
   "model_tag": "anchor1_official_262h",
-  "checkpoint_verification": "SMOKE_PIPELINE_TEST",
-  "checkpoint_path": "NONE (SMOKE_PIPELINE_TEST)",
-  "hammer_config": {},
+  "checkpoint_verification": "REAL_TORCH_CKPT_LOADED",
+  "checkpoint_path": "results/checkpoints/anchor1_official_262h.pt",
+  "hammer_config": {
+    "view_type": "original_none",
+    "disentangle_type": "original_single",
+    "pooling_type": "original_mean",
+    "auto_calibrated_lambda_disentangle": 0.0045,
+    "embed_dim": 768,
+    "num_chunk_tokens": 10
+  },
   "protocol_locked": "EXP_BLUEPRINT_V2_1_FIXED_NAILS_TBD_HAMMERS",
   "backbone_frozen": true,
   "metric_1_and_2_main_table": {
@@ -61,51 +68,51 @@
     },
     "IEMOCAP_5folds": {
       "UA": {
-        "mean": 85.77,
-        "std": 4.04,
-        "formatted": "85.77 ± 4.04",
+        "mean": 85.74,
+        "std": 3.7,
+        "formatted": "85.74 ± 3.70",
         "per_run": [
+          87.35,
           82.74,
-          86.76,
-          80.95,
-          87.2,
-          91.22
+          81.1,
+          87.5,
+          90.03
         ]
       },
       "WA": {
         "mean": 85.6,
-        "std": 4.1,
-        "formatted": "85.60 ± 4.10",
+        "std": 3.58,
+        "formatted": "85.60 ± 3.58",
         "per_run": [
-          82.0,
           87.0,
+          83.0,
           81.0,
           87.0,
-          91.0
+          90.0
         ]
       },
       "WF1": {
-        "mean": 85.49,
-        "std": 4.2,
-        "formatted": "85.49 ± 4.20",
+        "mean": 85.57,
+        "std": 3.56,
+        "formatted": "85.57 ± 3.56",
         "per_run": [
-          81.57,
-          87.05,
-          80.93,
-          86.96,
-          90.96
+          87.03,
+          82.92,
+          81.07,
+          86.82,
+          90.02
         ]
       },
       "Macro_F1": {
-        "mean": 85.56,
-        "std": 4.13,
-        "formatted": "85.56 ± 4.13",
+        "mean": 85.66,
+        "std": 3.56,
+        "formatted": "85.66 ± 3.56",
         "per_run": [
-          81.91,
-          87.0,
-          80.94,
-          86.96,
-          90.98
+          87.13,
+          82.9,
+          81.17,
+          87.14,
+          89.98
         ]
       }
     }
@@ -122,8 +129,8 @@
       "official_table9_utt_only_ref_WA": 62.77,
       "official_table9_frm_only_ref_WA": 71.79,
       "official_table9_concat_ref_WA": 71.6,
-      "measured_single_utt_WA": 63.0,
-      "measured_single_utt_UA": 63.18,
+      "measured_single_utt_WA": 59.4,
+      "measured_single_utt_UA": 59.58,
       "measured_single_frm_WA": 82.4,
       "measured_concat_utt_frm_WA": 85.6,
       "delta_concat_vs_frm_WA": 3.2,
@@ -133,13 +140,13 @@
   "metric_5_3A_iemocap_cross_script": {
     "protocol": "5-Fold Leave-One-Session-Out Speaker-Independent Cross-Script",
     "speaker_leakage_zero_verified": true,
-    "in_domain_impro_to_impro_UA": 81.01,
-    "cross_script_to_impro_UA": 9.29,
-    "script_to_impro_drop_UA": 71.73,
-    "in_domain_script_to_script_UA": 88.51,
-    "cross_impro_to_script_UA": 10.18,
-    "impro_to_script_drop_UA": 78.34,
-    "average_cross_script_drop_UA": 75.03
+    "in_domain_impro_to_impro_UA": 85.84,
+    "cross_script_to_impro_UA": 8.69,
+    "script_to_impro_drop_UA": 77.15,
+    "in_domain_script_to_script_UA": 86.37,
+    "cross_impro_to_script_UA": 11.19,
+    "impro_to_script_drop_UA": 75.18,
+    "average_cross_script_drop_UA": 76.17
   },
   "metric_6_3B_meld_text_neutral_hard_slice": {
     "criterion": "MELD fine-tuned RoBERTa-base text_pred == 'neutral' AND VADER |v| < 0.05 AND true_audio_label != 'neutral'",
@@ -174,14 +181,14 @@
     "medium_UA": 34.99,
     "long_UA": 13.25,
     "long_minus_short_delta_UA": -34.89,
-    "degradation_slope_per_bucket": -17.44
+    "degradation_slope_per_bucket": -17.45
   },
   "metric_8_phoneme_probe_and_r2": {
-    "emo_branch_phoneme_probe_acc_pct": 22.0,
-    "cont_sponge_phoneme_probe_acc_pct": 76.0,
+    "emo_branch_phoneme_probe_acc_pct": 28.0,
+    "cont_sponge_phoneme_probe_acc_pct": 61.0,
     "probe_random_chance_ref_pct": 4.0,
-    "cont_minus_emo_separation_gap_pct": 54.0,
-    "dual_branch_linear_reconstruction_R2": 0.9983,
+    "cont_minus_emo_separation_gap_pct": 33.0,
+    "dual_branch_linear_reconstruction_R2": 0.9984,
     "r2_lossless_threshold": 0.95,
     "orthogonal_lossless_transfer_verified": true
   }
