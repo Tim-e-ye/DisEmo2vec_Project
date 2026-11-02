@@ -176,7 +176,24 @@ H1_CANDIDATE_FUNCTIONS: Dict[str, Callable] = {
 
 
 class HammerSlotH1_ViewTransform(BaseModule):
-    """卡槽 H1 封装类：支持通过 `--view_type` 切换在线 GPU 张量变换或离线音频副本二选一。"""
+    """
+    [SYM-E2V-SLOT-H1] 卡槽 H1：输入视角变换锤封装类
+    @bce_contract:
+      uid: "SYM-E2V-SLOT-H1"
+      layer: "SLOT-H1"
+      name: "卡槽 H1 输入/特征视角微扰锤 (支持 --view_type 开关热插拔)"
+      file_rel_path: "models/hammer_slots/slot_h1_view.py"
+      tensor_input: "student_input: FloatTensor[B, N_frm, 768], frame_energy_std: FloatTensor[B, N_frm], offline_pert_x: Optional[FloatTensor[B, N_frm, 768]]"
+      tensor_output: "perturbed_student_x: FloatTensor[B, N_frm, 768], h1_meta: Dict"
+      signal_math_assumptions:
+        - "仅对送入 Student 分支的特征或波形施加共振峰/通道微扰，Teacher 始终接收未经扰动的原始干净输入。"
+        - "【叮嘱 2】当使用 offline_wav_1C 时，采用 (B, 1, 1) 布尔掩码执行 torch.where 逐样本独立掷硬币采样。"
+      hard_invariants:
+        - "【H1 防挑刺红线】变换前后短时能量包络余弦相关性必须 >= 0.98，严禁破坏决定情绪的基频轨迹 F0(t) 与能量起伏 E(t)！"
+      broken_assumptions:
+        - "精确修复 [SYM-E2V-S1-01 / S2-02] 的原版缺陷 B0/B2-02：切断 Student 对固定音素共振峰包络的死记硬背捷径。"
+      reserved_slot_id: "[SLOT-H1: original_none | vtlp_1A | channel_drop_1B | offline_wav_1C]"
+    """
 
     def __init__(
         self,

@@ -1,0 +1,77 @@
+{
+  "step": "Step 5 Action 5.4 — 1-Batch Dynamic Signal & Mathematical Assumptions Verification",
+  "overall_passed": true,
+  "s1_audio_dataset": {
+    "symbol_id": "SYM-E2V-S1-01",
+    "sample0_valid_mean": 1.3784602970190463e-07,
+    "sample0_valid_std": 0.9999988675117493,
+    "sample1_valid_mean": -1.706965768732971e-08,
+    "sample1_valid_std": 0.999992311000824,
+    "sample1_padded_max_abs": 0.0,
+    "global_loudness_erased": true,
+    "passed": true
+  },
+  "s2_conv_frontend": {
+    "symbol_id": "SYM-E2V-S2-01 & SYM-E2V-S2-02",
+    "expected_frames": [
+      199,
+      64
+    ],
+    "actual_valid_frames": [
+      199,
+      64
+    ],
+    "masked_valid_frames_sample0": 77,
+    "masked_valid_frames_sample1": 28,
+    "masked_padded_frames_sample1": 0,
+    "passed": true
+  },
+  "s3_dual_stream_and_criterion": {
+    "symbol_id": "SYM-E2V-S3-01 & SYM-E2V-S3-02 & SYM-E2V-S3-03",
+    "prepend_seq_len": 209,
+    "theoretical_whitened_l2_norm": 27.7128,
+    "measured_single_layer_whitened_l2_norm": 27.7121,
+    "sample1_padded_frames_max_abs": 0.0,
+    "padding_leakage_error_base_utt": 0.0,
+    "padding_leakage_error_slot_h3_utt": 0.0,
+    "broken_assumption_proof_80_20_dilution": {
+      "original_mean_cos_to_80pct_neutral": 0.9698,
+      "original_mean_cos_to_20pct_emotion_burst": 0.2433,
+      "slot_h3_salience_cos_to_80pct_neutral": -0.0029,
+      "slot_h3_salience_cos_to_20pct_emotion_burst": 0.9999,
+      "burst_weight_mass_original_mean": 0.201,
+      "burst_weight_mass_slot_h3_salience": 1.0
+    },
+    "criterion_losses": {
+      "loss_total": 1.658839225769043,
+      "loss_frm": 1.0165576934814453,
+      "loss_utt": 0.6422815322875977
+    },
+    "passed": true
+  },
+  "s4_ema_and_fp16": {
+    "symbol_id": "SYM-E2V-S4-01",
+    "tau_step0": 0.999,
+    "tau_step15000": 0.99945,
+    "tau_step30000": 0.9999,
+    "grad_balancer_sample": {
+      "grad_norm_frm": 1.2,
+      "grad_norm_hammer": 0.3,
+      "raw_grad_ratio": 0.25,
+      "golden_interval": [
+        0.05,
+        0.5
+      ],
+      "in_golden_zone": true,
+      "recommended_lambda": 0.8
+    },
+    "passed": true
+  },
+  "s5_downstream_probe": {
+    "symbol_id": "SYM-E2V-S5-01",
+    "probe_param_count": 197892,
+    "masked_exact_error_sample1": 0.0,
+    "unmasked_naive_mean_bias_error_sample1": 1.6898,
+    "passed": true
+  }
+}

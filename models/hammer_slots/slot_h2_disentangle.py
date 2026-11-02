@@ -225,7 +225,24 @@ H2_CANDIDATE_FUNCTIONS: Dict[str, Callable] = {
 
 
 class HammerSlotH2_Disentangler(BaseModule):
-    """卡槽 H2 封装类：支持通过 `--disentangle_type` / `active_card` 开关切换候选解耦锤头。"""
+    """
+    [SYM-E2V-SLOT-H2] 卡槽 H2：词汇-情感双分支解耦锤封装类
+    @bce_contract:
+      uid: "SYM-E2V-SLOT-H2"
+      layer: "SLOT-H2"
+      name: "卡槽 H2 词汇-情感正交净水解耦锤 (支持 --disentangle_type 开关热插拔)"
+      file_rel_path: "models/hammer_slots/slot_h2_disentangle.py"
+      tensor_input: "z_emo: FloatTensor[B, 768], z_cont: FloatTensor[B, 768], y_teacher_sal: FloatTensor[B, 768], p_hubert_target: FloatTensor[B, 500]"
+      tensor_output: "h2_meta: Dict[loss_utt, loss_sponge, loss_dis, loss_total_h2, y_teacher_clean]"
+      signal_math_assumptions:
+        - "将前置 C=10 个 Chunk Tokens 对半切分为前 5 个情感 Token (z_emo) 与后 5 个内容海绵 Token (z_cont)。"
+        - "【细节 1】在预训练阶段保持完整 PyTorch 计算图，使 loss_total_h2 梯度反传更新 Student 主干与 Chunk Tokens。"
+      hard_invariants:
+        - "【H2 防挑刺红线】100% 零外部人工标签；通过 Teacher 目标净水投影 + 共享分类头 sg(W_c) 均匀分布最大熵双保险阻断词汇回流；下游推理零额外参数开销！"
+      broken_assumptions:
+        - "精确修复 [SYM-E2V-S3-02 / S3-03] 的失效假设 B 与隐性缺陷 B1：将词汇音素正交分流至内容海绵分支，净化情感全局表征。"
+      reserved_slot_id: "[SLOT-H2: original_single | clean_proj_2A | grl_adv_2B]"
+    """
 
     def __init__(
         self,

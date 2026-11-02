@@ -219,7 +219,24 @@ H3_CANDIDATE_FUNCTIONS: Dict[str, Callable] = {
 
 
 class HammerSlotH3_TemporalAggregator(BaseModule):
-    """卡槽 H3 封装类：支持通过 `--pooling_type` 切换池化锤头，并计算带 `padding_mask` 保护的加权帧损失 L_Frm。"""
+    """
+    [SYM-E2V-SLOT-H3] 卡槽 H3：抗稀释时序显著性汇聚锤封装类
+    @bce_contract:
+      uid: "SYM-E2V-SLOT-H3"
+      layer: "SLOT-H3"
+      name: "卡槽 H3 抗稀释时序显著性池化与加权帧损失锤 (支持 --pooling_type 开关热插拔)"
+      file_rel_path: "models/hammer_slots/slot_h3_pooling.py"
+      tensor_input: "y_teacher_frames: FloatTensor[B, N_frm, 768], frame_energy_std: FloatTensor[B, N_frm], padding_mask: BoolTensor[B, N_frm]"
+      tensor_output: "target_utt: FloatTensor[B, 768] (detached), weights_w: FloatTensor[B, N_frm] (detached), h3_meta: Dict"
+      signal_math_assumptions:
+        - "【细节 2】输出的 target_utt 与 weights_w 均强制 .detach()，并将 weights_w 一鱼两吃传给掩码帧级损失 (1 + N_valid * sg(w_i)) * MSE。"
+        - "【叮嘱 1】在 Softmax 前将 padding_mask==True 的补零帧打分设为 -1e9 (使 Padding 处 w_i = 0)，且句内均值与帧损失倍数均使用真实有效帧数 N_valid。"
+      hard_invariants:
+        - "【H3 防挑刺红线】严禁将纯静音帧 (e_tilde_i << 0) 误判为高权重帧（防 |e_tilde_i| 静音反噬漏洞）；兼顾高唤醒爆发与低唤醒叹息情绪！"
+      broken_assumptions:
+        - "精确修复 [SYM-E2V-S3-03] 的失效假设 A：打破 1/N_valid 无差别平均造成的 80% 平淡帧稀释瓶颈。"
+      reserved_slot_id: "[SLOT-H3: original_mean | salience_3A | attn_rollout_3B]"
+    """
 
     def __init__(
         self,
