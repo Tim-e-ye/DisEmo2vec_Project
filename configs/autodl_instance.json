@@ -7,7 +7,8 @@
     {
       "ssh_alias": "autodl-pilot",
       "instance_id": "autodl-pro-79363e4a3db9",
-      "host": "connect.westd.seetacloud.com",
+      "host": "36.103.198.204",
+      "hostname_alias": "connect.westd.seetacloud.com",
       "port": 31527,
       "user": "root",
       "hardware_spec": "NVIDIA RTX PRO 6000 Blackwell Server Edition (96GB VRAM) * 1 | 22 vCPU Xeon Platinum 8470Q | 110GB RAM | PyTorch 2.8.0+cu128",

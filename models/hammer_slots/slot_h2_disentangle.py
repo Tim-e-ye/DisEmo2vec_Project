@@ -352,13 +352,224 @@ def h2_vicreg_cov_2C(
     }
 
 
+def h2_gr_ssd_soft_2D(
+    z_emo: Any,
+    z_cont: Any,
+    y_teacher_sal: Any,
+    p_hubert_target: Optional[Any] = None,
+    sponge_head_wc: Optional[Any] = None,
+    sponge_weight_matrix: Optional[np.ndarray] = None,
+    num_clusters: int = 500,
+    gate_bias_init: float = -2.0,
+    lambda_dis: float = 0.0045,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """
+    [第 2 棒核心破局锤头 H2-2D (`gr_ssd_soft_2D` / `gr_ssd_2D`)]：
+    Gated Residual Soft-Subspace Disentangler (GR-SSD)。
+    针对第 1 棒暴露的“硬正交投影 (1A/2A) 与强协方差惩罚 (2C) 破坏冻结基座流形、导致与 AutoPool 3C 组合掉点”问题：
+      - 采用软门控残差剥离：`h_emo = h_base - sigmoid(gate) * proj_sem(h_base)`；
+      - `gate` 初始化为负偏置 `-2.0`，使初始剥离强度 `g_soft = sigmoid(-2.0) ≈ 0.1192`，
+        绝不暴力洗掉与音素方向微弱纠缠的高价值副语言情绪线索；
+      - 配合温和的软残差余弦正交正则与内容海绵吸收，完美兼容 `autopool_3C` 与 `autostats_3E`！
+    """
+    eps = 1e-6
+    g_soft = float(1.0 / (1.0 + np.exp(-float(gate_bias_init))))  # ~0.1192 when gate_bias_init = -2.0
+
+    if HAS_TORCH and isinstance(z_emo, torch.Tensor):
+        bsz, dim = z_emo.shape
+        device = z_emo.device
+        dtype = z_emo.dtype
+        y_sal_sg = y_teacher_sal.detach()
+
+        u_hat_cont = z_cont.detach() / (torch.norm(z_cont.detach(), p=2, dim=-1, keepdim=True) + eps)
+        proj_teacher = torch.sum(y_sal_sg * u_hat_cont, dim=-1, keepdim=True) * u_hat_cont
+        # Soft-gated residual Teacher target cleaning: y_clean = y_sal - sigmoid(gate) * proj_sem(y_sal)
+        y_clean = (y_sal_sg - g_soft * proj_teacher).detach()
+
+        # Soft-gated residual Student emotion subspace refinement
+        proj_student = torch.sum(z_emo * u_hat_cont, dim=-1, keepdim=True) * u_hat_cont
+        z_emo_soft = z_emo - g_soft * proj_student
+
+        l_utt = F.mse_loss(z_emo_soft, y_clean)
+
+        if sponge_head_wc is not None and p_hubert_target is not None and isinstance(p_hubert_target, torch.Tensor):
+            p_hubert_t = p_hubert_target.to(device=device, dtype=dtype).detach()
+            log_prob_cont = F.log_softmax(sponge_head_wc(z_cont), dim=-1)
+            l_sponge = F.kl_div(log_prob_cont, p_hubert_t, reduction="batchmean")
+        else:
+            l_sponge = F.mse_loss(z_cont, proj_teacher.detach())
+
+        # Gentle cosine orthogonality on soft-refined emotion vector
+        cos_sim = F.cosine_similarity(z_emo_soft, z_cont, dim=-1, eps=eps)
+        l_dis = torch.mean(cos_sim * cos_sim)
+        l_total_h2 = l_utt + 0.20 * l_sponge + float(lambda_dis) * l_dis
+
+        return {
+            "slot": "H2",
+            "disentangle_type": "gr_ssd_soft_2D",
+            "status": "[ACTIVE_TRIAL_BATON2]",
+            "soft_gate_strength": round(g_soft, 4),
+            "lambda_dis": float(lambda_dis),
+            "loss_utt": l_utt,
+            "loss_sponge": l_sponge,
+            "loss_dis": l_dis,
+            "loss_total_h2": l_total_h2,
+            "y_teacher_clean": y_clean,
+            "uses_external_human_labels": False,
+            "downstream_extra_params": 0,
+            "teacher_backflow_blocked": True,
+        }
+
+    # ---------------- NumPy 离线兼容路径 ----------------
+    z_emo_np = to_numpy(z_emo).astype(np.float32)
+    z_cont_np = to_numpy(z_cont).astype(np.float32)
+    y_sal_np = to_numpy(y_teacher_sal).astype(np.float32)
+
+    u_hat = z_cont_np / (np.linalg.norm(z_cont_np, axis=-1, keepdims=True) + eps)
+    proj_t = np.sum(y_sal_np * u_hat, axis=-1, keepdims=True) * u_hat
+    y_clean = y_sal_np - g_soft * proj_t
+
+    proj_s = np.sum(z_emo_np * u_hat, axis=-1, keepdims=True) * u_hat
+    z_emo_soft = z_emo_np - g_soft * proj_s
+
+    l_utt_val = float(np.mean((z_emo_soft - y_clean) ** 2))
+    l_sponge_val = float(np.mean((z_cont_np - proj_t) ** 2))
+    cos_num = np.sum(z_emo_soft * z_cont_np, axis=-1)
+    cos_den = (np.linalg.norm(z_emo_soft, axis=-1) * np.linalg.norm(z_cont_np, axis=-1)) + eps
+    l_dis_val = float(np.mean((cos_num / cos_den) ** 2))
+    l_total_val = l_utt_val + 0.20 * l_sponge_val + float(lambda_dis) * l_dis_val
+
+    return {
+        "slot": "H2",
+        "disentangle_type": "gr_ssd_soft_2D",
+        "status": "[ACTIVE_TRIAL_BATON2]",
+        "soft_gate_strength": round(g_soft, 4),
+        "lambda_dis": float(lambda_dis),
+        "loss_utt": l_utt_val,
+        "loss_sponge": l_sponge_val,
+        "loss_dis": l_dis_val,
+        "loss_total_h2": l_total_val,
+        "y_teacher_clean": y_clean,
+        "uses_external_human_labels": False,
+        "downstream_extra_params": 0,
+        "teacher_backflow_blocked": True,
+    }
+
+
+def h2_vclub_mi_2E(
+    z_emo: Any,
+    z_cont: Any,
+    y_teacher_sal: Any,
+    p_hubert_target: Optional[Any] = None,
+    soft_gate_init: float = -1.8,
+    lambda_dis: float = 0.0045,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """
+    [第 2 棒候选锤头 H2-2E (`vclub_mi_2E` / `vclub_2E`)]：
+    Variational Contrastive MI Bottleneck (vCLUB-Bottleneck, Cheng et al., ICML 2020)。
+    基于变分对比对数比互信息上界（vCLUB）：
+      I_vCLUB = (1/B) sum_i log q(z_cont_i | z_emo_i) - (1/B^2) sum_{i,j} log q(z_cont_j | z_emo_i)
+    配合软门控残差投影 (`sigmoid(-1.8) ≈ 0.1419`) 与非负截断 `clamp_min(0.0)`，实现温和互信息压缩。
+    """
+    eps = 1e-6
+    g_soft = float(1.0 / (1.0 + np.exp(-float(soft_gate_init))))
+
+    if HAS_TORCH and isinstance(z_emo, torch.Tensor):
+        bsz, dim = z_emo.shape
+        y_sal_sg = y_teacher_sal.detach()
+
+        u_hat_cont = z_cont.detach() / (torch.norm(z_cont.detach(), p=2, dim=-1, keepdim=True) + eps)
+        proj_t = torch.sum(y_sal_sg * u_hat_cont, dim=-1, keepdim=True) * u_hat_cont
+        y_clean = (y_sal_sg - g_soft * proj_t).detach()
+
+        l_utt = F.mse_loss(z_emo, y_clean)
+        l_sponge = F.mse_loss(z_cont, proj_t.detach())
+
+        # Normalized Gaussian variational log-likelihood matrix: -||z_cont_j - mu(z_emo_i)||^2 / (2 * sigma^2)
+        z_e_norm = F.normalize(z_emo.float(), p=2, dim=-1, eps=eps)
+        z_c_norm = F.normalize(z_cont.float().detach(), p=2, dim=-1, eps=eps)
+        # Pairwise squared distance matrix (B, B)
+        dist_sq = torch.cdist(z_e_norm, z_c_norm, p=2.0).pow(2)
+        log_q_mat = -0.5 * dist_sq  # (B, B)
+        pos_log_q = torch.diagonal(log_q_mat).mean()
+        neg_log_q = log_q_mat.mean()
+        vclub_upper = F.relu(pos_log_q - neg_log_q)
+
+        cos_sim = F.cosine_similarity(z_emo, z_cont, dim=-1, eps=eps)
+        l_dis = (vclub_upper + 0.25 * torch.mean(cos_sim * cos_sim)).to(z_emo.dtype)
+        l_total_h2 = l_utt + 0.20 * l_sponge + float(lambda_dis) * l_dis
+
+        return {
+            "slot": "H2",
+            "disentangle_type": "vclub_mi_2E",
+            "status": "[ACTIVE_TRIAL_BATON2]",
+            "vclub_mi_upper": round(float(vclub_upper.item()), 6),
+            "lambda_dis": float(lambda_dis),
+            "loss_utt": l_utt,
+            "loss_sponge": l_sponge,
+            "loss_dis": l_dis,
+            "loss_total_h2": l_total_h2,
+            "y_teacher_clean": y_clean,
+            "uses_external_human_labels": False,
+            "downstream_extra_params": 0,
+            "teacher_backflow_blocked": True,
+        }
+
+    # ---------------- NumPy 离线兼容路径 ----------------
+    z_emo_np = to_numpy(z_emo).astype(np.float32)
+    z_cont_np = to_numpy(z_cont).astype(np.float32)
+    y_sal_np = to_numpy(y_teacher_sal).astype(np.float32)
+
+    u_hat = z_cont_np / (np.linalg.norm(z_cont_np, axis=-1, keepdims=True) + eps)
+    proj_t = np.sum(y_sal_np * u_hat, axis=-1, keepdims=True) * u_hat
+    y_clean = y_sal_np - g_soft * proj_t
+
+    l_utt_val = float(np.mean((z_emo_np - y_clean) ** 2))
+    l_sponge_val = float(np.mean((z_cont_np - proj_t) ** 2))
+
+    z_e_norm = z_emo_np / (np.linalg.norm(z_emo_np, axis=-1, keepdims=True) + eps)
+    z_c_norm = z_cont_np / (np.linalg.norm(z_cont_np, axis=-1, keepdims=True) + eps)
+    diff = z_e_norm[:, None, :] - z_c_norm[None, :, :]
+    dist_sq = np.sum(diff * diff, axis=-1)
+    log_q = -0.5 * dist_sq
+    vclub_val = float(max(0.0, float(np.mean(np.diag(log_q)) - np.mean(log_q))))
+
+    cos_num = np.sum(z_emo_np * z_cont_np, axis=-1)
+    cos_den = (np.linalg.norm(z_emo_np, axis=-1) * np.linalg.norm(z_cont_np, axis=-1)) + eps
+    l_dis_val = vclub_val + 0.25 * float(np.mean((cos_num / cos_den) ** 2))
+    l_total_val = l_utt_val + 0.20 * l_sponge_val + float(lambda_dis) * l_dis_val
+
+    return {
+        "slot": "H2",
+        "disentangle_type": "vclub_mi_2E",
+        "status": "[ACTIVE_TRIAL_BATON2]",
+        "vclub_mi_upper": round(vclub_val, 6),
+        "lambda_dis": float(lambda_dis),
+        "loss_utt": l_utt_val,
+        "loss_sponge": l_sponge_val,
+        "loss_dis": l_dis_val,
+        "loss_total_h2": l_total_val,
+        "y_teacher_clean": y_clean,
+        "uses_external_human_labels": False,
+        "downstream_extra_params": 0,
+        "teacher_backflow_blocked": True,
+    }
+
+
 H2_CANDIDATE_FUNCTIONS: Dict[str, Callable] = {
     "original_single": h2_original_single,
+    "base": h2_original_single,
     "tbd_passthrough": h2_original_single,
     "clean_proj_2A": h2_clean_proj_2A,
     "v0_chunk_sponge_clean_proj": h2_clean_proj_2A,
     "grl_adv_2B": h2_grl_adversarial_2B,
     "vicreg_cov_2C": h2_vicreg_cov_2C,
+    "gr_ssd_soft_2D": h2_gr_ssd_soft_2D,
+    "gr_ssd_2D": h2_gr_ssd_soft_2D,
+    "vclub_mi_2E": h2_vclub_mi_2E,
+    "vclub_2E": h2_vclub_mi_2E,
 }
 
 
@@ -379,7 +590,7 @@ class HammerSlotH2_Disentangler(BaseModule):
         - "【H2 防挑刺红线】100% 零外部人工标签；通过 Teacher 目标净水投影 + 共享分类头 sg(W_c) 均匀分布最大熵双保险阻断词汇回流；下游推理零额外参数开销！"
       broken_assumptions:
         - "精确修复 [SYM-E2V-S3-02 / S3-03] 的失效假设 B 与隐性缺陷 B1：将词汇音素正交分流至内容海绵分支，净化情感全局表征。"
-      reserved_slot_id: "[SLOT-H2: original_single | clean_proj_2A | grl_adv_2B | vicreg_cov_2C]"
+      reserved_slot_id: "[SLOT-H2: original_single | clean_proj_2A | grl_adv_2B | vicreg_cov_2C | gr_ssd_soft_2D | vclub_mi_2E]"
     """
 
     def __init__(
@@ -396,7 +607,7 @@ class HammerSlotH2_Disentangler(BaseModule):
         super().__init__()
         self.slot_id = "H2"
         self.active_card = active_card
-        self.status = "[TBD]" if active_card in ("original_single", "tbd_passthrough") else "[ACTIVE_TRIAL]"
+        self.status = "[TBD]" if active_card in ("original_single", "base", "tbd_passthrough") else "[ACTIVE_TRIAL]"
         self.embed_dim = int(embed_dim)
         self.num_emo_tokens = int(num_emo_tokens)
         self.num_cont_tokens = int(num_cont_tokens)
@@ -415,7 +626,7 @@ class HammerSlotH2_Disentangler(BaseModule):
     def split_and_pool_chunks(self, chunk_tokens: Any, disentangle_type: Optional[str] = None) -> Tuple[Any, Any]:
         mode = disentangle_type or self.active_card
         is_torch = HAS_TORCH and isinstance(chunk_tokens, torch.Tensor)
-        if mode in ("original_single", "tbd_passthrough"):
+        if mode in ("original_single", "base", "tbd_passthrough"):
             z_emo = chunk_tokens.mean(dim=1) if is_torch else chunk_tokens.mean(axis=1)
             z_cont = (
                 chunk_tokens[:, -self.num_cont_tokens :, :].mean(dim=1).detach()
@@ -443,7 +654,7 @@ class HammerSlotH2_Disentangler(BaseModule):
     ) -> Dict[str, Any]:
         mode = disentangle_type or self.active_card
 
-        if mode in ("original_single", "tbd_passthrough"):
+        if mode in ("original_single", "base", "tbd_passthrough"):
             meta = h2_original_single(z_emo, z_cont, y_teacher_sal, p_hubert_target)
         elif mode in ("clean_proj_2A", "v0_chunk_sponge_clean_proj"):
             meta = h2_clean_proj_2A(
@@ -495,7 +706,7 @@ class HammerSlotH2_Disentangler(BaseModule):
             raise ValueError(f"[H2 卡槽] 未知的 disentangle_type='{mode}'，可选值: {list(H2_CANDIDATE_FUNCTIONS)}")
 
         meta["uses_external_human_labels"] = bool(uses_external_human_labels)
-        if mode not in ("original_single", "tbd_passthrough"):
+        if mode not in ("original_single", "base", "tbd_passthrough"):
             self.verify_red_lines(meta)
         return meta
 

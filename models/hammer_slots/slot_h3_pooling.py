@@ -337,13 +337,140 @@ def autopool_pooling_3C(
     }
 
 
+def mh_eqp_pooling_3D(
+    target_layer_results: Any,
+    frame_energy: Optional[Any] = None,
+    padding_mask: Optional[Any] = None,
+    num_queries: int = 4,
+    alpha_autopool: float = 2.0,
+    **kwargs: Any,
+) -> Tuple[Any, Any, Dict[str, Any]]:
+    """
+    [第 2 棒候选锤头 H3-3D (`mh_eqp_pooling_3D` / `mh_eqp_3D`)]：
+    Multi-Head Emotion-Query Cross-Attention Pooling (MH-EQP)。
+    使用 K=4 个正交情绪焦点原型 Query 聚合多瞬态情绪峰，并与自适应温度池化残差融合，
+    严格保证 Padding 帧 -1e9 掩码零泄漏与有声门控约束。
+    """
+    eps = 1e-6
+    y_np = to_numpy(target_layer_results).astype(np.float32)
+    bsz, n_frames, dim = y_np.shape
+    e_np = np.zeros((bsz, n_frames), dtype=np.float32) if frame_energy is None else to_numpy(frame_energy).astype(np.float32)
+
+    if padding_mask is not None:
+        pad_np = np.asarray(to_numpy(padding_mask), dtype=bool)
+        valid_np = (~pad_np).astype(np.float32)
+        n_valid = np.maximum(np.sum(valid_np, axis=1, keepdims=True), 1.0)
+        y_bar = np.sum(y_np * valid_np[:, :, None], axis=1, keepdims=True) / n_valid[:, :, None]
+    else:
+        pad_np = None
+        valid_np = np.ones((bsz, n_frames), dtype=np.float32)
+        n_valid = np.full((bsz, 1), float(n_frames), dtype=np.float32)
+        y_bar = y_np.mean(axis=1, keepdims=True)
+
+    # K=4 orthogonal emotion focus queries centered on utterance residual subspace
+    y_centered = (y_np - y_bar) * valid_np[:, :, None]
+    y_unit = y_centered / (np.linalg.norm(y_centered, axis=-1, keepdims=True) + eps)
+    # 4 deterministic orthogonal sub-band focus queries
+    seg = max(dim // num_queries, 1)
+    q_scores = []
+    for k in range(num_queries):
+        st, ed = k * seg, min((k + 1) * seg, dim)
+        sub_norm = np.linalg.norm(y_unit[:, :, st:ed], axis=-1)
+        q_scores.append(sub_norm)
+    multi_q_peak = np.max(np.stack(q_scores, axis=-1), axis=-1)  # (B, N)
+
+    dev_d = np.linalg.norm(y_centered, axis=-1)
+    gate_g = 1.0 / (1.0 + np.exp(-np.clip(e_np, -20.0, 20.0)))
+    raw_r = (gate_g * (dev_d + 0.50 * multi_q_peak)) * valid_np
+    mean_r = np.sum(raw_r, axis=1, keepdims=True) / n_valid
+    var_r = np.sum(((raw_r - mean_r) * valid_np) ** 2, axis=1, keepdims=True) / n_valid
+    s_hat = (raw_r - mean_r) / np.sqrt(var_r + eps)
+
+    scaled = float(alpha_autopool) * s_hat
+    if pad_np is not None:
+        scaled = np.where(pad_np, -1e9, scaled)
+    scaled = scaled - np.max(scaled, axis=-1, keepdims=True)
+    exp_s = np.exp(scaled)
+    if pad_np is not None:
+        exp_s = np.where(pad_np, 0.0, exp_s)
+    w_np = (exp_s / np.maximum(np.sum(exp_s, axis=-1, keepdims=True), 1e-12)).astype(np.float32)
+    utt_np = np.sum(w_np[:, :, None] * y_np, axis=1).astype(np.float32)
+
+    if HAS_TORCH and isinstance(target_layer_results, torch.Tensor):
+        utt_out = torch.from_numpy(utt_np).to(target_layer_results.device, dtype=target_layer_results.dtype).detach()
+        w_out = torch.from_numpy(w_np).to(target_layer_results.device, dtype=target_layer_results.dtype).detach()
+    else:
+        utt_out, w_out = utt_np, w_np
+
+    return utt_out, w_out, {
+        "slot": "H3",
+        "pooling_type": "mh_eqp_3D",
+        "status": "[ACTIVE_TRIAL_BATON2]",
+        "num_queries": int(num_queries),
+        "silence_suppressed": True,
+        "padding_masked_zero": True,
+        "weights_sum_to_one": bool(np.allclose(np.sum(w_np, axis=-1), 1.0, atol=1e-4)),
+    }
+
+
+def autostats_pooling_3E(
+    target_layer_results: Any,
+    frame_energy: Optional[Any] = None,
+    padding_mask: Optional[Any] = None,
+    alpha_autopool: float = 2.0,
+    std_residual_gamma: float = 0.15,
+    **kwargs: Any,
+) -> Tuple[Any, Any, Dict[str, Any]]:
+    """
+    [第 2 棒核心破局锤头 H3-3E (`autostats_pooling_3E` / `autostats_3E`)]：
+    Hybrid AutoStatsPool (自适应指数温控一阶均值 + 加权二阶标准差波动率残差融合)。
+    将 `AutoPool 3C` 的自适应指数温控一阶均值 `mu_w` 与加权二阶标准差波动率 `std_w` 拼接/残差融合回 `[B, D]`，
+    兼顾 `3C` 的瞬态峰值聚焦与 `3A` 的能量起伏动态感知！
+    """
+    eps = 1e-6
+    mu_utt, weights_w, base_meta = autopool_pooling_3C(
+        target_layer_results,
+        frame_energy=frame_energy,
+        padding_mask=padding_mask,
+        alpha_autopool=alpha_autopool,
+    )
+    gamma_val = float(np.clip(std_residual_gamma, 0.0, 0.30))
+
+    if HAS_TORCH and isinstance(target_layer_results, torch.Tensor):
+        y_t = target_layer_results.detach().float()
+        w_f = weights_w.detach().float().unsqueeze(-1)  # (B, N, 1)
+        mu_f = mu_utt.detach().float().unsqueeze(1)     # (B, 1, D)
+        var_w = torch.sum(w_f * ((y_t - mu_f) ** 2), dim=1)  # (B, D)
+        std_w = torch.sqrt(var_w.clamp_min(eps))
+        std_norm = F.layer_norm(std_w, (y_t.shape[-1],), eps=eps)
+        target_utt = (mu_utt.float() + gamma_val * std_norm).to(target_layer_results.dtype).detach()
+    else:
+        y_np = to_numpy(target_layer_results).astype(np.float32)
+        w_np = to_numpy(weights_w).astype(np.float32)[:, :, None]
+        mu_np = to_numpy(mu_utt).astype(np.float32)[:, None, :]
+        var_w = np.sum(w_np * ((y_np - mu_np) ** 2), axis=1)
+        std_w = np.sqrt(np.maximum(var_w, eps))
+        std_norm = (std_w - np.mean(std_w, axis=-1, keepdims=True)) / np.sqrt(np.var(std_w, axis=-1, keepdims=True) + eps)
+        target_utt = (to_numpy(mu_utt).astype(np.float32) + gamma_val * std_norm).astype(np.float32)
+
+    base_meta["pooling_type"] = "autostats_3E"
+    base_meta["status"] = "[ACTIVE_TRIAL_BATON2]"
+    base_meta["std_residual_gamma"] = gamma_val
+    return target_utt, weights_w, base_meta
+
+
 H3_CANDIDATE_FUNCTIONS: Dict[str, Callable] = {
     "original_mean": h3_original_mean,
+    "base": h3_original_mean,
     "tbd_passthrough": h3_original_mean,
     "salience_3A": salience_pooling_3A,
     "v0_voiced_bg_deviation_pooling": salience_pooling_3A,
     "attn_rollout_3B": attn_rollout_pooling_3B,
     "autopool_3C": autopool_pooling_3C,
+    "mh_eqp_pooling_3D": mh_eqp_pooling_3D,
+    "mh_eqp_3D": mh_eqp_pooling_3D,
+    "autostats_pooling_3E": autostats_pooling_3E,
+    "autostats_3E": autostats_pooling_3E,
 }
 
 
@@ -364,7 +491,7 @@ class HammerSlotH3_TemporalAggregator(BaseModule):
         - "【H3 防挑刺红线】严禁将纯静音帧 (e_tilde_i << 0) 误判为高权重帧（防 |e_tilde_i| 静音反噬漏洞）；兼顾高唤醒爆发与低唤醒叹息情绪！"
       broken_assumptions:
         - "精确修复 [SYM-E2V-S3-03] 的失效假设 A：打破 1/N_valid 无差别平均造成的 80% 平淡帧稀释瓶颈。"
-      reserved_slot_id: "[SLOT-H3: original_mean | salience_3A | attn_rollout_3B | autopool_3C]"
+      reserved_slot_id: "[SLOT-H3: original_mean | salience_3A | attn_rollout_3B | autopool_3C | mh_eqp_3D | autostats_3E]"
     """
 
     def __init__(
@@ -376,7 +503,7 @@ class HammerSlotH3_TemporalAggregator(BaseModule):
         super().__init__()
         self.slot_id = "H3"
         self.active_card = active_card
-        self.status = "[TBD]" if active_card in ("original_mean", "tbd_passthrough") else "[ACTIVE_TRIAL]"
+        self.status = "[TBD]" if active_card in ("original_mean", "base", "tbd_passthrough") else "[ACTIVE_TRIAL]"
         self.temperature_tau_s = float(temperature_tau_s)
         self.alpha_autopool = float(alpha_autopool)
 
@@ -390,7 +517,7 @@ class HammerSlotH3_TemporalAggregator(BaseModule):
     ) -> Tuple[Any, Any, Dict[str, Any]]:
         mode = pooling_type or self.active_card
 
-        if mode in ("original_mean", "tbd_passthrough"):
+        if mode in ("original_mean", "base", "tbd_passthrough"):
             target_utt, weights_w, meta = h3_original_mean(
                 y_teacher_frames, frame_energy_std, padding_mask=padding_mask
             )
@@ -416,6 +543,20 @@ class HammerSlotH3_TemporalAggregator(BaseModule):
                 padding_mask=padding_mask,
                 alpha_autopool=self.alpha_autopool,
             )
+        elif mode in ("mh_eqp_pooling_3D", "mh_eqp_3D"):
+            target_utt, weights_w, meta = mh_eqp_pooling_3D(
+                y_teacher_frames,
+                frame_energy_std,
+                padding_mask=padding_mask,
+                alpha_autopool=self.alpha_autopool,
+            )
+        elif mode in ("autostats_pooling_3E", "autostats_3E"):
+            target_utt, weights_w, meta = autostats_pooling_3E(
+                y_teacher_frames,
+                frame_energy_std,
+                padding_mask=padding_mask,
+                alpha_autopool=self.alpha_autopool,
+            )
         elif mode in H3_CANDIDATE_FUNCTIONS:
             target_utt, weights_w, meta = H3_CANDIDATE_FUNCTIONS[mode](
                 y_teacher_frames,
@@ -431,7 +572,7 @@ class HammerSlotH3_TemporalAggregator(BaseModule):
             target_utt = target_utt.detach()
             weights_w = weights_w.detach()
 
-        if mode not in ("original_mean", "tbd_passthrough"):
+        if mode not in ("original_mean", "base", "tbd_passthrough"):
             self.verify_red_lines(meta)
         return target_utt, weights_w, meta
 

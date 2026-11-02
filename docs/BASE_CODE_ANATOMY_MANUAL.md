@@ -233,13 +233,13 @@ flowchart TD
 
 ## 三、 第 6 步可插拔锤子卡槽双向静态契约（`[SYM-E2V-SLOT-H1]` ~ `[SYM-E2V-SLOT-H3]`）
 
-<!-- [SYM-E2V-SLOT-H1:START] file="models/hammer_slots/slot_h1_view.py" lines="178-259" ast_hash="bcd201aa" -->
+<!-- [SYM-E2V-SLOT-H1:START] file="models/hammer_slots/slot_h1_view.py" lines="183-275" ast_hash="fcfb6971" -->
 ### `[SYM-E2V-SLOT-H1]` 卡槽 H1 输入/特征视角微扰锤 (支持 --view_type 开关热插拔) (`HammerSlotH1_ViewTransform`)
 
-- **绑定源码坐标**：[slot_h1_view.py (L178-L259)](file:///D:/Code/VibeCode/Antigravity/Project/DisEmo2vec_Project/models/hammer_slots/slot_h1_view.py#L178-L259) | **拓扑层**：`SLOT-H1` | **AST 指纹**：`bcd201aa`
+- **绑定源码坐标**：[slot_h1_view.py (L183-L275)](file:///D:/Code/VibeCode/Antigravity/Project/DisEmo2vec_Project/models/hammer_slots/slot_h1_view.py#L183-L275) | **拓扑层**：`SLOT-H1` | **AST 指纹**：`fcfb6971`
 - **输入张量契约 (`tensor_input`)**：`student_input: FloatTensor[B, N_frm, 768], frame_energy_std: FloatTensor[B, N_frm], offline_pert_x: Optional[FloatTensor[B, N_frm, 768]]`
 - **输出张量契约 (`tensor_output`)**：`perturbed_student_x: FloatTensor[B, N_frm, 768], h1_meta: Dict`
-- **绑定/预留卡槽 (`reserved_slot_id`)**：`[SLOT-H1: original_none | vtlp_1A | channel_drop_1B | offline_wav_1C]`
+- **绑定/预留卡槽 (`reserved_slot_id`)**：`[SLOT-H1: original_none | vtlp_1A | channel_drop_1B | offline_wav_1C | dw_gated_conv_1B | ms_ft_se_1C]`
 
 #### 📐 数学与信号处理假设 (`signal_math_assumptions`)
 - 仅对送入 Student 分支的特征或波形施加共振峰/通道微扰，Teacher 始终接收未经扰动的原始干净输入。
@@ -254,13 +254,13 @@ flowchart TD
 
 ---
 
-<!-- [SYM-E2V-SLOT-H2:START] file="models/hammer_slots/slot_h2_disentangle.py" lines="365-508" ast_hash="2c4e82ef" -->
+<!-- [SYM-E2V-SLOT-H2:START] file="models/hammer_slots/slot_h2_disentangle.py" lines="576-719" ast_hash="069a1ba2" -->
 ### `[SYM-E2V-SLOT-H2]` 卡槽 H2 词汇-情感正交净水解耦锤 (支持 --disentangle_type 开关热插拔) (`HammerSlotH2_Disentangler`)
 
-- **绑定源码坐标**：[slot_h2_disentangle.py (L365-L508)](file:///D:/Code/VibeCode/Antigravity/Project/DisEmo2vec_Project/models/hammer_slots/slot_h2_disentangle.py#L365-L508) | **拓扑层**：`SLOT-H2` | **AST 指纹**：`2c4e82ef`
+- **绑定源码坐标**：[slot_h2_disentangle.py (L576-L719)](file:///D:/Code/VibeCode/Antigravity/Project/DisEmo2vec_Project/models/hammer_slots/slot_h2_disentangle.py#L576-L719) | **拓扑层**：`SLOT-H2` | **AST 指纹**：`069a1ba2`
 - **输入张量契约 (`tensor_input`)**：`z_emo: FloatTensor[B, 768], z_cont: FloatTensor[B, 768], y_teacher_sal: FloatTensor[B, 768], p_hubert_target: FloatTensor[B, 500]`
 - **输出张量契约 (`tensor_output`)**：`h2_meta: Dict[loss_utt, loss_sponge, loss_dis, loss_total_h2, y_teacher_clean]`
-- **绑定/预留卡槽 (`reserved_slot_id`)**：`[SLOT-H2: original_single | clean_proj_2A | grl_adv_2B | vicreg_cov_2C]`
+- **绑定/预留卡槽 (`reserved_slot_id`)**：`[SLOT-H2: original_single | clean_proj_2A | grl_adv_2B | vicreg_cov_2C | gr_ssd_soft_2D | vclub_mi_2E]`
 
 #### 📐 数学与信号处理假设 (`signal_math_assumptions`)
 - 将前置 C=10 个 Chunk Tokens 对半切分为前 5 个情感 Token (z_emo) 与后 5 个内容海绵 Token (z_cont)。
@@ -275,13 +275,13 @@ flowchart TD
 
 ---
 
-<!-- [SYM-E2V-SLOT-H3:START] file="models/hammer_slots/slot_h3_pooling.py" lines="350-504" ast_hash="95ba4838" -->
+<!-- [SYM-E2V-SLOT-H3:START] file="models/hammer_slots/slot_h3_pooling.py" lines="477-645" ast_hash="56aa99ac" -->
 ### `[SYM-E2V-SLOT-H3]` 卡槽 H3 抗稀释时序显著性池化与加权帧损失锤 (支持 --pooling_type 开关热插拔) (`HammerSlotH3_TemporalAggregator`)
 
-- **绑定源码坐标**：[slot_h3_pooling.py (L350-L504)](file:///D:/Code/VibeCode/Antigravity/Project/DisEmo2vec_Project/models/hammer_slots/slot_h3_pooling.py#L350-L504) | **拓扑层**：`SLOT-H3` | **AST 指纹**：`95ba4838`
+- **绑定源码坐标**：[slot_h3_pooling.py (L477-L645)](file:///D:/Code/VibeCode/Antigravity/Project/DisEmo2vec_Project/models/hammer_slots/slot_h3_pooling.py#L477-L645) | **拓扑层**：`SLOT-H3` | **AST 指纹**：`56aa99ac`
 - **输入张量契约 (`tensor_input`)**：`y_teacher_frames: FloatTensor[B, N_frm, 768], frame_energy_std: FloatTensor[B, N_frm], padding_mask: BoolTensor[B, N_frm]`
 - **输出张量契约 (`tensor_output`)**：`target_utt: FloatTensor[B, 768] (detached), weights_w: FloatTensor[B, N_frm] (detached), h3_meta: Dict`
-- **绑定/预留卡槽 (`reserved_slot_id`)**：`[SLOT-H3: original_mean | salience_3A | attn_rollout_3B | autopool_3C]`
+- **绑定/预留卡槽 (`reserved_slot_id`)**：`[SLOT-H3: original_mean | salience_3A | attn_rollout_3B | autopool_3C | mh_eqp_3D | autostats_3E]`
 
 #### 📐 数学与信号处理假设 (`signal_math_assumptions`)
 - 【细节 2】输出的 target_utt 与 weights_w 均强制 .detach()，并将 weights_w 一鱼两吃传给掩码帧级损失 (1 + N_valid * sg(w_i)) * MSE。

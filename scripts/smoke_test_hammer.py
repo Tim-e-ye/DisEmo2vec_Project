@@ -185,11 +185,12 @@ def run_single_combo_smoke_test(
         axis=1,
     )
 
-    # Use deterministic view (`original_none`) to isolate padding leakage from online random sampling
+    # Use deterministic view (`original_none` for stochastic VTLP/Dropout, or `view_type` for deterministic Baton-2 adapters)
+    det_view = view_type if view_type in ("dw_gated_conv_1B", "dw_gated_1B", "ms_ft_se_1C") else "original_none"
     wrapper_det = PluggableDisEmo2vecFrontend(
         h3_slot=h3_slot,
         cfg=HammerSwitchConfig(
-            view_type="original_none",
+            view_type=det_view,
             disentangle_type=disentangle_type,
             pooling_type=pooling_type,
             embed_dim=D,
@@ -374,6 +375,15 @@ def main() -> int:
             ("channel_drop_1B", "clean_proj_2A", "salience_3A"),
             ("offline_wav_1C", "clean_proj_2A", "salience_3A"),
             ("vtlp_1A", "grl_adv_2B", "attn_rollout_3B"),
+            # Baton 2: 8 Targeted New Hammer Combinations (B2_G1 .. B2_G8)
+            ("original_none", "gr_ssd_2D", "autopool_3C"),
+            ("original_none", "vclub_2E", "autopool_3C"),
+            ("original_none", "original_single", "autostats_3E"),
+            ("original_none", "original_single", "mh_eqp_3D"),
+            ("dw_gated_1B", "original_single", "autopool_3C"),
+            ("dw_gated_1B", "gr_ssd_2D", "autopool_3C"),
+            ("dw_gated_1B", "gr_ssd_2D", "autostats_3E"),
+            ("ms_ft_se_1C", "gr_ssd_2D", "autostats_3E"),
         ]
 
     results: List[Dict[str, Any]] = []

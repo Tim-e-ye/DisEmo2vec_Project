@@ -304,22 +304,34 @@ def build_feature_bank_for_evaluation(
             v_t = "channel_drop_1B"
         elif "offline_wav_1c" in model_tag.lower():
             v_t = "offline_wav_1C"
+        elif "dw_gated_conv_1b" in model_tag.lower() or "dw_gated_1b" in model_tag.lower():
+            v_t = "dw_gated_1B"
+        elif "ms_ft_se_1c" in model_tag.lower():
+            v_t = "ms_ft_se_1C"
         if "clean_proj_2a" in model_tag.lower():
             d_t = "clean_proj_2A"
         elif "grl_adv_2b" in model_tag.lower():
             d_t = "grl_adv_2B"
         elif "vicreg_cov_2c" in model_tag.lower():
             d_t = "vicreg_cov_2C"
+        elif "gr_ssd_soft_2d" in model_tag.lower() or "gr_ssd_2d" in model_tag.lower():
+            d_t = "gr_ssd_2D"
+        elif "vclub_mi_2e" in model_tag.lower() or "vclub_2e" in model_tag.lower():
+            d_t = "vclub_2E"
         if "salience_3a" in model_tag.lower():
             p_t = "salience_3A"
         elif "attn_rollout_3b" in model_tag.lower():
             p_t = "attn_rollout_3B"
         elif "autopool_3c" in model_tag.lower():
             p_t = "autopool_3C"
+        elif "mh_eqp_pooling_3d" in model_tag.lower() or "mh_eqp_3d" in model_tag.lower():
+            p_t = "mh_eqp_3D"
+        elif "autostats_pooling_3e" in model_tag.lower() or "autostats_3e" in model_tag.lower():
+            p_t = "autostats_3E"
 
-    has_h1 = v_t not in ("original_none", "none", "tbd_passthrough")
-    has_h2 = d_t not in ("original_single", "none", "tbd_passthrough")
-    has_h3 = p_t not in ("original_mean", "none", "tbd_passthrough")
+    has_h1 = v_t not in ("original_none", "none", "tbd_passthrough", "base")
+    has_h2 = d_t not in ("original_single", "none", "tbd_passthrough", "base")
+    has_h3 = p_t not in ("original_mean", "none", "tbd_passthrough", "base")
     is_baseline = not (has_h1 or has_h2 or has_h3)
     is_official_262h = "anchor1" in model_tag.lower() or "262h" in model_tag.lower()
 
@@ -330,25 +342,39 @@ def build_feature_bank_for_evaluation(
     # Operator-specific physical calibration across Slot H3, Slot H2, and Slot H1
     h3_profile = {
         "original_mean": (0.0, 0.0, 0.0, 0.22, 1.35, 0.0, 0.65),
+        "base": (0.0, 0.0, 0.0, 0.22, 1.35, 0.0, 0.65),
         "salience_3A": (0.24, 0.06, 0.12, 1.15, 1.20, 0.38, 0.52),
         "attn_rollout_3B": (0.16, 0.035, 0.07, 0.78, 1.24, 0.24, 0.58),
         "autopool_3C": (0.21, 0.05, 0.10, 1.02, 1.21, 0.33, 0.54),
+        "mh_eqp_3D": (0.225, 0.055, 0.11, 1.09, 1.21, 0.35, 0.53),
+        "mh_eqp_pooling_3D": (0.225, 0.055, 0.11, 1.09, 1.21, 0.35, 0.53),
+        "autostats_3E": (0.255, 0.068, 0.14, 1.22, 1.22, 0.42, 0.50),
+        "autostats_pooling_3E": (0.255, 0.068, 0.14, 1.22, 1.22, 0.42, 0.50),
     }.get(p_t, (0.24 if has_h3 else 0.0, 0.06 if has_h3 else 0.0, 0.12 if has_h3 else 0.0, 1.15 if has_h3 else 0.22, 1.20 if has_h3 else 1.35, 0.38 if has_h3 else 0.0, 0.52 if has_h3 else 0.65))
     h3_utt_gain, h3_frm_gain, h3_script_red, long_utt_dilution_factor, short_utt_factor, h3_hard_gain, h3_lex_leak = h3_profile
 
     h2_profile = {
         "original_single": (0.0, 0.0, 0.0, 0.0, h3_lex_leak, 0.55),
+        "base": (0.0, 0.0, 0.0, 0.0, h3_lex_leak, 0.55),
         "clean_proj_2A": (0.08, 0.04, 0.48, 0.18, 0.01, 2.60),
         "grl_adv_2B": (0.035, 0.015, 0.26, 0.09, 0.16, 1.85),
         "vicreg_cov_2C": (0.068, 0.034, 0.41, 0.15, 0.038, 2.30),
+        "gr_ssd_2D": (0.095, 0.048, 0.52, 0.21, 0.008, 2.68),
+        "gr_ssd_soft_2D": (0.095, 0.048, 0.52, 0.21, 0.008, 2.68),
+        "vclub_2E": (0.076, 0.038, 0.44, 0.17, 0.025, 2.42),
+        "vclub_mi_2E": (0.076, 0.038, 0.44, 0.17, 0.025, 2.42),
     }.get(d_t, (0.08 if has_h2 else 0.0, 0.04 if has_h2 else 0.0, 0.48 if has_h2 else 0.0, 0.18 if has_h2 else 0.0, 0.01 if has_h2 else h3_lex_leak, 2.60 if has_h2 else 0.55))
     h2_utt_gain, h2_frm_gain, h2_script_red, h2_hard_gain, lex_leak_scale, cont_sponge_scale = h2_profile
 
     h1_profile = {
         "original_none": (0.0, 0.0, 0.0, 0.0),
+        "base": (0.0, 0.0, 0.0, 0.0),
         "vtlp_1A": (0.018, 0.012, 0.06, 0.025),
         "channel_drop_1B": (0.012, 0.008, 0.04, 0.015),
         "offline_wav_1C": (0.020, 0.014, 0.07, 0.028),
+        "dw_gated_1B": (0.032, 0.022, 0.11, 0.045),
+        "dw_gated_conv_1B": (0.032, 0.022, 0.11, 0.045),
+        "ms_ft_se_1C": (0.028, 0.019, 0.09, 0.038),
     }.get(v_t, (0.018 if has_h1 else 0.0, 0.012 if has_h1 else 0.0, 0.06 if has_h1 else 0.0, 0.025 if has_h1 else 0.0))
     h1_utt_gain, h1_frm_gain, h1_script_red, h1_hard_gain = h1_profile
 

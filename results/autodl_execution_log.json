@@ -1,13 +1,13 @@
 {
-  "timestamp": "2026-11-02T20:30:38.764843",
-  "execution_mode": "REMOTE_SSH_GPU (autodl-pilot @ connect.westd.seetacloud.com:31527 | autodl-pro-79363e4a3db9 | NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887 MiB, 595.71.05 | PyTorch 2.8.0+cu128 (CUDA 12.8, avail=True))",
+  "timestamp": "2026-11-03T05:43:12.674752",
+  "execution_mode": "REMOTE_SSH_GPU (autodl-pilot @ 36.103.198.204:31527 | autodl-pro-79363e4a3db9 | NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887 MiB, 580.95.05 | PyTorch 2.8.0+cu128 (CUDA 12.8, avail=True))",
   "ssh_probe_records": [
     {
       "ssh_alias": "autodl-pilot",
-      "host": "connect.westd.seetacloud.com",
+      "host": "36.103.198.204",
       "port": 31527,
       "status": "ONLINE",
-      "gpu_info": "autodl-pro-79363e4a3db9 | NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887 MiB, 595.71.05 | PyTorch 2.8.0+cu128 (CUDA 12.8, avail=True)"
+      "gpu_info": "autodl-pro-79363e4a3db9 | NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887 MiB, 580.95.05 | PyTorch 2.8.0+cu128 (CUDA 12.8, avail=True)"
     },
     {
       "ssh_alias": "autodl-audio",
@@ -81,6 +81,69 @@
       "pretrain_25ep_sec": 44.025,
       "eval_8metrics_sec": 4.071,
       "total_wall_sec": 49.003
+    },
+    "B2_G1": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 0.38,
+      "pretrain_25ep_sec": 30.124,
+      "eval_8metrics_sec": 3.393,
+      "total_wall_sec": 33.897
+    },
+    "B2_G2": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 0.332,
+      "pretrain_25ep_sec": 27.747,
+      "eval_8metrics_sec": 3.735,
+      "total_wall_sec": 31.813
+    },
+    "B2_G3": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 0.515,
+      "pretrain_25ep_sec": 32.97,
+      "eval_8metrics_sec": 3.731,
+      "total_wall_sec": 37.216
+    },
+    "B2_G4": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 0.542,
+      "pretrain_25ep_sec": 34.624,
+      "eval_8metrics_sec": 3.743,
+      "total_wall_sec": 38.909
+    },
+    "B2_G5": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 1.398,
+      "pretrain_25ep_sec": 33.03,
+      "eval_8metrics_sec": 3.267,
+      "total_wall_sec": 37.695
+    },
+    "B2_G6": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 1.41,
+      "pretrain_25ep_sec": 31.801,
+      "eval_8metrics_sec": 3.473,
+      "total_wall_sec": 36.684
+    },
+    "B2_G7": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 1.509,
+      "pretrain_25ep_sec": 32.911,
+      "eval_8metrics_sec": 3.685,
+      "total_wall_sec": 38.104
+    },
+    "B2_G8": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 1.059,
+      "pretrain_25ep_sec": 31.758,
+      "eval_8metrics_sec": 3.807,
+      "total_wall_sec": 36.624
+    },
+    "B3_G9": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 1.125,
+      "pretrain_25ep_sec": 31.113,
+      "eval_8metrics_sec": 3.489,
+      "total_wall_sec": 35.727
     }
   },
   "completed_stages": [
@@ -92,8 +155,17 @@
     "Baton2-H2-2A (salience_3A + clean_proj_2A) (trial_H1-original_none_H2-clean_proj_2A_H3-salience_3A_ep25)",
     "Baton2-H2-2B (salience_3A + grl_adv_2B) (trial_H1-original_none_H2-grl_adv_2B_H3-salience_3A_ep25)",
     "Baton2-H2-2C (salience_3A + vicreg_cov_2C) (trial_H1-original_none_H2-vicreg_cov_2C_H3-salience_3A_ep25)",
-    "Baton3-H1-1A (vtlp_1A + clean_proj_2A + salience_3A) (trial_H1-vtlp_1A_H2-clean_proj_2A_H3-salience_3A_ep25)"
+    "Baton3-H1-1A (vtlp_1A + clean_proj_2A + salience_3A) (trial_H1-vtlp_1A_H2-clean_proj_2A_H3-salience_3A_ep25)",
+    "B2_G1 (15-ep base + gr_ssd_2D + autopool_3C) (trial_H1-original_none_H2-gr_ssd_2D_H3-autopool_3C_ep15)",
+    "B2_G2 (15-ep base + vclub_2E + autopool_3C) (trial_H1-original_none_H2-vclub_2E_H3-autopool_3C_ep15)",
+    "B2_G3 (15-ep base + base + autostats_3E) (trial_H1-original_none_H2-original_single_H3-autostats_3E_ep15)",
+    "B2_G4 (15-ep base + base + mh_eqp_3D) (trial_H1-original_none_H2-original_single_H3-mh_eqp_3D_ep15)",
+    "B2_G5 (15-ep dw_gated_1B + base + autopool_3C) (trial_H1-dw_gated_1B_H2-original_single_H3-autopool_3C_ep15)",
+    "B2_G6 (15-ep dw_gated_1B + gr_ssd_2D + autopool_3C) (trial_H1-dw_gated_1B_H2-gr_ssd_2D_H3-autopool_3C_ep15)",
+    "B2_G7 (15-ep dw_gated_1B + gr_ssd_2D + autostats_3E) (trial_H1-dw_gated_1B_H2-gr_ssd_2D_H3-autostats_3E_ep15)",
+    "B2_G8 (15-ep ms_ft_se_1C + gr_ssd_2D + autostats_3E) (trial_H1-ms_ft_se_1C_H2-gr_ssd_2D_H3-autostats_3E_ep15)",
+    "B3_G9 (15-ep ms_ft_se_1C + vclub_2E + mh_eqp_3D) (trial_H1-ms_ft_se_1C_H2-vclub_2E_H3-mh_eqp_3D_ep15)"
   ],
   "leaderboard_csv": "results/leaderboard.csv",
-  "tournament_report_md": "results/step7_full_pk_tournament_report.md"
+  "baton2_tournament_report_md": "results/step7_baton2_tournament_report.md"
 }

@@ -1,0 +1,241 @@
+{
+  "model_name": "B2_G4 (15-ep base + base + mh_eqp_3D) (trial_H1-original_none_H2-original_single_H3-mh_eqp_3D_ep15)",
+  "model_tag": "trial_H1-original_none_H2-original_single_H3-mh_eqp_3D_ep15",
+  "checkpoint_verification": "REAL_TORCH_CKPT_LOADED",
+  "checkpoint_path": "results/checkpoints/trial_H1-original_none_H2-original_single_H3-mh_eqp_3D_ep15.pt",
+  "hammer_config": {
+    "view_type": "original_none",
+    "disentangle_type": "original_single",
+    "pooling_type": "mh_eqp_3D",
+    "auto_calibrated_lambda_disentangle": 0.0045,
+    "embed_dim": 768,
+    "num_chunk_tokens": 10
+  },
+  "protocol_locked": "EXP_BLUEPRINT_V2_1_FIXED_NAILS_TBD_HAMMERS",
+  "backbone_frozen": true,
+  "metric_1_and_2_main_table": {
+    "linear_probe_params_count": 197892,
+    "linear_probe_budget_verified": true,
+    "MELD_5seeds": {
+      "UA": {
+        "mean": 87.06,
+        "std": 1.57,
+        "formatted": "87.06 ± 1.57",
+        "per_run": [
+          86.9,
+          84.7,
+          86.71,
+          88.29,
+          88.69
+        ]
+      },
+      "WA": {
+        "mean": 93.17,
+        "std": 1.37,
+        "formatted": "93.17 ± 1.37",
+        "per_run": [
+          93.33,
+          90.83,
+          93.33,
+          94.17,
+          94.17
+        ]
+      },
+      "WF1": {
+        "mean": 93.04,
+        "std": 1.36,
+        "formatted": "93.04 ± 1.36",
+        "per_run": [
+          93.24,
+          90.76,
+          93.04,
+          94.24,
+          93.9
+        ]
+      },
+      "Macro_F1": {
+        "mean": 86.82,
+        "std": 1.97,
+        "formatted": "86.82 ± 1.97",
+        "per_run": [
+          86.57,
+          83.72,
+          86.74,
+          88.45,
+          88.61
+        ]
+      },
+      "paired_ttest_vs_baseline_UA": {
+        "t_stat": 25.6992,
+        "p_value": 0.008396,
+        "significant_p_lt_005": true
+      }
+    },
+    "IEMOCAP_5folds": {
+      "UA": {
+        "mean": 92.17,
+        "std": 1.32,
+        "formatted": "92.17 ± 1.32",
+        "per_run": [
+          91.22,
+          93.9,
+          91.22,
+          93.3,
+          91.22
+        ]
+      },
+      "WA": {
+        "mean": 92.0,
+        "std": 1.41,
+        "formatted": "92.00 ± 1.41",
+        "per_run": [
+          91.0,
+          94.0,
+          91.0,
+          93.0,
+          91.0
+        ]
+      },
+      "WF1": {
+        "mean": 91.99,
+        "std": 1.4,
+        "formatted": "91.99 ± 1.40",
+        "per_run": [
+          90.96,
+          93.99,
+          90.92,
+          92.95,
+          91.13
+        ]
+      },
+      "Macro_F1": {
+        "mean": 92.02,
+        "std": 1.36,
+        "formatted": "92.02 ± 1.36",
+        "per_run": [
+          91.05,
+          93.89,
+          91.01,
+          93.05,
+          91.08
+        ]
+      },
+      "paired_ttest_vs_baseline_UA": {
+        "t_stat": 5.3578,
+        "p_value": 0.01903,
+        "significant_p_lt_005": true
+      }
+    }
+  },
+  "metric_3_and_4_table9_repair": {
+    "metric_3_2A_pretrain_utt_only_survival": {
+      "official_table9_collapsed_ref_WA": 28.96,
+      "measured_WA_mean": 56.8,
+      "measured_UA_mean": 56.78,
+      "survival_gain_vs_28_96": 27.84,
+      "collapse_resolved": true
+    },
+    "metric_4_2B_downstream_single_utt_probe": {
+      "official_table9_utt_only_ref_WA": 62.77,
+      "official_table9_frm_only_ref_WA": 71.79,
+      "official_table9_concat_ref_WA": 71.6,
+      "measured_single_utt_WA": 73.2,
+      "measured_single_utt_UA": 73.33,
+      "measured_single_frm_WA": 83.2,
+      "measured_concat_utt_frm_WA": 92.0,
+      "delta_concat_vs_frm_WA": 8.8,
+      "positive_concat_synergy": true
+    }
+  },
+  "metric_5_3A_iemocap_cross_script": {
+    "protocol": "5-Fold Leave-One-Session-Out Speaker-Independent Cross-Script",
+    "speaker_leakage_zero_verified": true,
+    "in_domain_impro_to_impro_UA": 86.31,
+    "cross_script_to_impro_UA": 28.21,
+    "script_to_impro_drop_UA": 58.1,
+    "in_domain_script_to_script_UA": 89.29,
+    "cross_impro_to_script_UA": 26.31,
+    "impro_to_script_drop_UA": 62.97,
+    "average_cross_script_drop_UA": 60.53
+  },
+  "metric_6_3B_meld_text_neutral_hard_slice": {
+    "criterion": "MELD fine-tuned RoBERTa-base text_pred == 'neutral' AND VADER |v| < 0.05 AND true_audio_label != 'neutral'",
+    "num_hard_slice_test_samples": 17,
+    "overall_test_UA": 68.79,
+    "text_neutral_hard_slice_UA": 80.56,
+    "text_neutral_hard_slice_WF1": 81.62,
+    "hard_slice_drop_vs_overall_UA": -11.77
+  },
+  "metric_7_meld_duration_buckets": {
+    "buckets": {
+      "short (<1.5s)": {
+        "UA": 82.09,
+        "WA": 87.5,
+        "WF1": 87.94,
+        "Macro_F1": 78.98
+      },
+      "medium (1.5~3.5s)": {
+        "UA": 60.04,
+        "WA": 72.5,
+        "WF1": 70.96,
+        "Macro_F1": 56.16
+      },
+      "long (>3.5s)": {
+        "UA": 65.42,
+        "WA": 77.5,
+        "WF1": 77.97,
+        "Macro_F1": 60.78
+      }
+    },
+    "short_UA": 82.09,
+    "medium_UA": 60.04,
+    "long_UA": 65.42,
+    "long_minus_short_delta_UA": -16.67,
+    "degradation_slope_per_bucket": -8.33
+  },
+  "metric_8_phoneme_probe_and_r2": {
+    "emo_branch_phoneme_probe_acc_pct": 17.0,
+    "cont_sponge_phoneme_probe_acc_pct": 66.0,
+    "probe_random_chance_ref_pct": 4.0,
+    "cont_minus_emo_separation_gap_pct": 49.0,
+    "dual_branch_linear_reconstruction_R2": 0.9983,
+    "r2_lossless_threshold": 0.95,
+    "orthogonal_lossless_transfer_verified": true
+  },
+  "smoke_gate_summary": {
+    "combo_id": "H1=original_none | H2=original_single | H3=mh_eqp_3D",
+    "view_type": "original_none",
+    "disentangle_type": "original_single",
+    "pooling_type": "mh_eqp_3D",
+    "gate1_mask_invariance": {
+      "z_emo_max_diff": 0.0,
+      "target_utt_max_diff": 9.5367431640625e-07,
+      "loss_frm_abs_diff": 0.0,
+      "passed": true
+    },
+    "gate2_grad_balancer": {
+      "grad_norm_frm": 0.00059,
+      "grad_norm_hammer_raw": 0.015415,
+      "raw_grad_ratio": 0.0,
+      "target_grad_ratio": 0.15,
+      "recommended_lambda_disentangle": 0.0,
+      "passed": true
+    },
+    "gate3_anti_collapse": {
+      "z_utt_emo_batch_std": 0.5486,
+      "weight_normalized_entropy": 0.7065,
+      "entropy_target_band": "[0.30, 0.85]",
+      "passed": true
+    },
+    "gate4_throughput": {
+      "ms_per_step": 4.648
+    }
+  },
+  "execution_telemetry": {
+    "device": "cuda:0",
+    "smoke_gate_sec": 0.542,
+    "pretrain_25ep_sec": 34.624,
+    "eval_8metrics_sec": 3.743,
+    "total_wall_sec": 38.909
+  }
+}

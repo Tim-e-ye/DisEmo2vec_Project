@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 import numpy as np
 
 from .slot_base import BaseModule, HAS_TORCH, HammerRedLineViolationError, torch, F, to_numpy
+from .slot_h1_acoustic import h1_dw_gated_conv_1B, h1_ms_ft_se_1C
 
 
 # ==============================================================================
@@ -167,11 +168,15 @@ def h1_offline_wav_1C(
 
 H1_CANDIDATE_FUNCTIONS: Dict[str, Callable] = {
     "original_none": h1_original_none,
+    "base": h1_original_none,
     "tbd_passthrough": h1_original_none,
     "vtlp_1A": h1_vtlp_formant_1A,
     "v0_prosody_preserving_vtlp": h1_vtlp_formant_1A,
     "channel_drop_1B": h1_channel_dropout_1B,
     "offline_wav_1C": h1_offline_wav_1C,
+    "dw_gated_conv_1B": h1_dw_gated_conv_1B,
+    "dw_gated_1B": h1_dw_gated_conv_1B,
+    "ms_ft_se_1C": h1_ms_ft_se_1C,
 }
 
 
@@ -192,7 +197,7 @@ class HammerSlotH1_ViewTransform(BaseModule):
         - "【H1 防挑刺红线】变换前后短时能量包络余弦相关性必须 >= 0.98，严禁破坏决定情绪的基频轨迹 F0(t) 与能量起伏 E(t)！"
       broken_assumptions:
         - "精确修复 [SYM-E2V-S1-01 / S2-02] 的原版缺陷 B0/B2-02：切断 Student 对固定音素共振峰包络的死记硬背捷径。"
-      reserved_slot_id: "[SLOT-H1: original_none | vtlp_1A | channel_drop_1B | offline_wav_1C]"
+      reserved_slot_id: "[SLOT-H1: original_none | vtlp_1A | channel_drop_1B | offline_wav_1C | dw_gated_conv_1B | ms_ft_se_1C]"
     """
 
     def __init__(
@@ -206,7 +211,7 @@ class HammerSlotH1_ViewTransform(BaseModule):
         super().__init__()
         self.slot_id = "H1"
         self.active_card = active_card
-        self.status = "[TBD]" if active_card in ("original_none", "tbd_passthrough") else "[ACTIVE_TRIAL]"
+        self.status = "[TBD]" if active_card in ("original_none", "base", "tbd_passthrough") else "[ACTIVE_TRIAL]"
         self.perturb_prob = float(perturb_prob)
         self.beta_min = float(beta_min)
         self.beta_max = float(beta_max)
@@ -218,12 +223,13 @@ class HammerSlotH1_ViewTransform(BaseModule):
         frame_energy_std: Optional[Any] = None,
         offline_pert_x: Optional[Any] = None,
         view_type: Optional[str] = None,
+        padding_mask: Optional[Any] = None,
     ) -> Tuple[Any, Dict[str, Any]]:
         mode = view_type or self.active_card
-        if not getattr(self, "training", True):
+        if not getattr(self, "training", True) and mode not in ("dw_gated_conv_1B", "dw_gated_1B", "ms_ft_se_1C"):
             mode = "original_none"
 
-        if mode in ("original_none", "tbd_passthrough"):
+        if mode in ("original_none", "base", "tbd_passthrough"):
             out, meta = h1_original_none(student_input, frame_energy_std, offline_pert_x)
         elif mode in ("vtlp_1A", "v0_prosody_preserving_vtlp"):
             out, meta = h1_vtlp_formant_1A(
@@ -240,8 +246,18 @@ class HammerSlotH1_ViewTransform(BaseModule):
             out, meta = h1_offline_wav_1C(
                 student_input, frame_energy_std, offline_pert_x=offline_pert_x, perturb_prob=self.perturb_prob
             )
+        elif mode in ("dw_gated_conv_1B", "dw_gated_1B"):
+            out, meta = h1_dw_gated_conv_1B(
+                student_input, frame_energy_std, offline_pert_x=offline_pert_x, padding_mask=padding_mask
+            )
+        elif mode == "ms_ft_se_1C":
+            out, meta = h1_ms_ft_se_1C(
+                student_input, frame_energy_std, offline_pert_x=offline_pert_x, padding_mask=padding_mask
+            )
         elif mode in H1_CANDIDATE_FUNCTIONS:
-            out, meta = H1_CANDIDATE_FUNCTIONS[mode](student_input, frame_energy_std, offline_pert_x)
+            out, meta = H1_CANDIDATE_FUNCTIONS[mode](
+                student_input, frame_energy_std, offline_pert_x, padding_mask=padding_mask
+            )
         else:
             raise ValueError(f"[H1 卡槽] 未知的 view_type='{mode}'，可选值: {list(H1_CANDIDATE_FUNCTIONS)}")
 

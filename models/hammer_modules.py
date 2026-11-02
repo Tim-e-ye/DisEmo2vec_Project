@@ -186,6 +186,7 @@ class PluggableDisEmo2vecFrontend(BaseModule):
             frame_energy_std=frame_energy,
             offline_pert_x=offline_pert_frames,
             view_type=self.cfg.view_type,
+            padding_mask=padding_mask,
         )
 
         # 2. [卡槽 H3 开关: --pooling_type] 含 padding_mask -1e9 保护，强制 .detach() 封死 Teacher 梯度（细节 2 + 叮嘱 1）

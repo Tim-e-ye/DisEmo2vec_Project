@@ -9,6 +9,11 @@
 """
 
 from .slot_base import BaseModule, HAS_TORCH, HammerRedLineViolationError, scalar_value, to_numpy
+from .slot_h1_acoustic import (
+    H1_BATON2_ACOUSTIC_FUNCTIONS,
+    h1_dw_gated_conv_1B,
+    h1_ms_ft_se_1C,
+)
 from .slot_h1_view import (
     H1_CANDIDATE_FUNCTIONS,
     HammerSlotH1_ViewTransform,
@@ -21,8 +26,10 @@ from .slot_h2_disentangle import (
     H2_CANDIDATE_FUNCTIONS,
     HammerSlotH2_Disentangler,
     h2_clean_proj_2A,
+    h2_gr_ssd_soft_2D,
     h2_grl_adversarial_2B,
     h2_original_single,
+    h2_vclub_mi_2E,
     h2_vicreg_cov_2C,
 )
 from .slot_h3_pooling import (
@@ -30,7 +37,9 @@ from .slot_h3_pooling import (
     HammerSlotH3_TemporalAggregator,
     attn_rollout_pooling_3B,
     autopool_pooling_3C,
+    autostats_pooling_3E,
     h3_original_mean,
+    mh_eqp_pooling_3D,
     salience_pooling_3A,
 )
 
@@ -44,17 +53,25 @@ __all__ = [
     "HammerSlotH2_Disentangler",
     "HammerSlotH3_TemporalAggregator",
     "H1_CANDIDATE_FUNCTIONS",
+    "H1_BATON2_ACOUSTIC_FUNCTIONS",
     "H2_CANDIDATE_FUNCTIONS",
     "H3_CANDIDATE_FUNCTIONS",
     "h1_original_none",
     "h1_vtlp_formant_1A",
     "h1_channel_dropout_1B",
+    "h1_offline_wav_1C",
+    "h1_dw_gated_conv_1B",
+    "h1_ms_ft_se_1C",
     "h2_original_single",
     "h2_clean_proj_2A",
     "h2_grl_adversarial_2B",
     "h2_vicreg_cov_2C",
+    "h2_gr_ssd_soft_2D",
+    "h2_vclub_mi_2E",
     "h3_original_mean",
     "salience_pooling_3A",
     "attn_rollout_pooling_3B",
     "autopool_pooling_3C",
+    "mh_eqp_pooling_3D",
+    "autostats_pooling_3E",
 ]
