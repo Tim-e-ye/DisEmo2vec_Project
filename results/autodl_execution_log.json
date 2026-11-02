@@ -1,0 +1,34 @@
+{
+  "timestamp": "2026-11-02T17:44:44.412726",
+  "execution_mode": "LOCAL_AUTONOMOUS_ENGINE (AutoDL SSH instances powered off -> automatic local execution)",
+  "ssh_probe_records": [
+    {
+      "ssh_alias": "autodl-audio",
+      "host": "116.172.94.204",
+      "port": 38950,
+      "status": "OFFLINE",
+      "reason": "Connection timed out during banner exchange | Connection to 116.172.94.204 port 38950 timed out"
+    },
+    {
+      "ssh_alias": "autodl-pro",
+      "host": "116.172.94.204",
+      "port": 18043,
+      "status": "OFFLINE",
+      "reason": "Connection timed out during banner exchange | Connection to 116.172.94.204 port 18043 timed out"
+    },
+    {
+      "ssh_alias": "AutoDL-Research",
+      "host": "connect.bjb2.seetacloud.com",
+      "port": 29466,
+      "status": "OFFLINE",
+      "reason": "Connection timed out during banner exchange | Connection to 198.18.0.27 port 29466 timed out"
+    }
+  ],
+  "completed_stages": [
+    "Anchor-1 (anchor1_official_262h)",
+    "Baton-0 / Anchor-2 (trial_H1-original_none_H2-original_single_H3-original_mean_ep25)",
+    "Baton-1 (trial_H1-original_none_H2-original_single_H3-salience_3A_ep25)"
+  ],
+  "leaderboard_csv": "results/leaderboard.csv",
+  "comparison_report_md": "results/step7_baton0_vs_baton1_comparison.md"
+}

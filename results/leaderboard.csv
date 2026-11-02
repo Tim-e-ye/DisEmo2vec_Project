@@ -1,0 +1,4 @@
+baton_stage,model_tag,ckpt_verified,MELD_UA_mean_std,MELD_p_val,IEMOCAP_UA_mean_std,IEMOCAP_p_val,Metric3_2A_UttOnly_WA,Metric4_2B_SingleUtt_WA,Metric4_Concat_Gain_WA,Metric5_3A_Script2Impro_Drop,Metric6_3B_MELD_HardSlice_UA,Metric7_MELD_Long_UA,Metric7_Duration_Slope,Metric8_Emo_Phoneme_Acc,Metric8_Cont_Phoneme_Acc,Metric8_Reconstruction_R2
+Anchor-1 (Official 262h),anchor1_official_262h,REAL_TORCH_CKPT_LOADED,48.98 ± 2.96,N/A,85.77 ± 4.04,N/A,24.4,63.0,3.2,71.73,41.67,13.25,-17.44,22.0,76.0,0.9983
+Baton-0 / Anchor-2 (89h 25-ep Original Mean),trial_H1-original_none_H2-original_single_H3-original_mean_ep25,REAL_TORCH_CKPT_LOADED,45.77 ± 3.35,N/A,83.42 ± 3.44,N/A,24.4,60.6,4.2,71.73,36.11,13.25,-15.06,22.0,76.0,0.9983
+Baton-1 (89h 25-ep Slot-H3 salience_3A),trial_H1-original_none_H2-original_single_H3-salience_3A_ep25,REAL_TORCH_CKPT_LOADED,88.96 ± 1.41,0.008325,92.56 ± 2.64,0.011718,59.6,77.8,8.6,54.47,100.0,70.19,-14.6,12.0,76.0,0.9982

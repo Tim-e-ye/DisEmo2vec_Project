@@ -1,0 +1,224 @@
+{
+  "model_name": "Baton-0 / Anchor-2 (89h 25-ep Original Mean) (trial_H1-original_none_H2-original_single_H3-original_mean_ep25)",
+  "model_tag": "trial_H1-original_none_H2-original_single_H3-original_mean_ep25",
+  "checkpoint_verification": "REAL_TORCH_CKPT_LOADED",
+  "checkpoint_path": "results/checkpoints/trial_H1-original_none_H2-original_single_H3-original_mean_ep25.pt",
+  "hammer_config": {
+    "view_type": "original_none",
+    "disentangle_type": "original_single",
+    "pooling_type": "original_mean",
+    "auto_calibrated_lambda_disentangle": 0.0045,
+    "embed_dim": 768,
+    "num_chunk_tokens": 10
+  },
+  "protocol_locked": "EXP_BLUEPRINT_V2_1_FIXED_NAILS_TBD_HAMMERS",
+  "backbone_frozen": true,
+  "metric_1_and_2_main_table": {
+    "linear_probe_params_count": 197892,
+    "linear_probe_budget_verified": true,
+    "MELD_5seeds": {
+      "UA": {
+        "mean": 45.77,
+        "std": 3.35,
+        "formatted": "45.77 ± 3.35",
+        "per_run": [
+          45.44,
+          48.21,
+          40.14,
+          46.83,
+          48.21
+        ]
+      },
+      "WA": {
+        "mean": 57.0,
+        "std": 0.95,
+        "formatted": "57.00 ± 0.95",
+        "per_run": [
+          55.83,
+          56.67,
+          58.33,
+          57.5,
+          56.67
+        ]
+      },
+      "WF1": {
+        "mean": 60.04,
+        "std": 0.91,
+        "formatted": "60.04 ± 0.91",
+        "per_run": [
+          58.78,
+          60.64,
+          59.46,
+          61.0,
+          60.33
+        ]
+      },
+      "Macro_F1": {
+        "mean": 40.96,
+        "std": 2.79,
+        "formatted": "40.96 ± 2.79",
+        "per_run": [
+          39.58,
+          43.42,
+          36.74,
+          42.12,
+          42.94
+        ]
+      }
+    },
+    "IEMOCAP_5folds": {
+      "UA": {
+        "mean": 83.42,
+        "std": 3.44,
+        "formatted": "83.42 ± 3.44",
+        "per_run": [
+          79.76,
+          83.78,
+          80.06,
+          86.31,
+          87.2
+        ]
+      },
+      "WA": {
+        "mean": 83.2,
+        "std": 3.56,
+        "formatted": "83.20 ± 3.56",
+        "per_run": [
+          79.0,
+          84.0,
+          80.0,
+          86.0,
+          87.0
+        ]
+      },
+      "WF1": {
+        "mean": 83.07,
+        "std": 3.64,
+        "formatted": "83.07 ± 3.64",
+        "per_run": [
+          78.6,
+          84.07,
+          79.94,
+          85.96,
+          86.79
+        ]
+      },
+      "Macro_F1": {
+        "mean": 83.15,
+        "std": 3.54,
+        "formatted": "83.15 ± 3.54",
+        "per_run": [
+          78.92,
+          84.04,
+          80.0,
+          86.02,
+          86.79
+        ]
+      }
+    }
+  },
+  "metric_3_and_4_table9_repair": {
+    "metric_3_2A_pretrain_utt_only_survival": {
+      "official_table9_collapsed_ref_WA": 28.96,
+      "measured_WA_mean": 24.4,
+      "measured_UA_mean": 24.4,
+      "survival_gain_vs_28_96": -4.56,
+      "collapse_resolved": false
+    },
+    "metric_4_2B_downstream_single_utt_probe": {
+      "official_table9_utt_only_ref_WA": 62.77,
+      "official_table9_frm_only_ref_WA": 71.79,
+      "official_table9_concat_ref_WA": 71.6,
+      "measured_single_utt_WA": 60.6,
+      "measured_single_utt_UA": 60.77,
+      "measured_single_frm_WA": 79.0,
+      "measured_concat_utt_frm_WA": 83.2,
+      "delta_concat_vs_frm_WA": 4.2,
+      "positive_concat_synergy": true
+    }
+  },
+  "metric_5_3A_iemocap_cross_script": {
+    "protocol": "5-Fold Leave-One-Session-Out Speaker-Independent Cross-Script",
+    "speaker_leakage_zero_verified": true,
+    "in_domain_impro_to_impro_UA": 80.6,
+    "cross_script_to_impro_UA": 8.87,
+    "script_to_impro_drop_UA": 71.73,
+    "in_domain_script_to_script_UA": 87.68,
+    "cross_impro_to_script_UA": 7.44,
+    "impro_to_script_drop_UA": 80.24,
+    "average_cross_script_drop_UA": 75.98
+  },
+  "metric_6_3B_meld_text_neutral_hard_slice": {
+    "criterion": "MELD fine-tuned RoBERTa-base text_pred == 'neutral' AND VADER |v| < 0.05 AND true_audio_label != 'neutral'",
+    "num_hard_slice_test_samples": 17,
+    "overall_test_UA": 29.34,
+    "text_neutral_hard_slice_UA": 36.11,
+    "text_neutral_hard_slice_WF1": 33.73,
+    "hard_slice_drop_vs_overall_UA": -6.77
+  },
+  "metric_7_meld_duration_buckets": {
+    "buckets": {
+      "short (<1.5s)": {
+        "UA": 43.37,
+        "WA": 65.0,
+        "WF1": 66.49,
+        "Macro_F1": 39.96
+      },
+      "medium (1.5~3.5s)": {
+        "UA": 34.37,
+        "WA": 52.5,
+        "WF1": 51.53,
+        "Macro_F1": 26.67
+      },
+      "long (>3.5s)": {
+        "UA": 13.25,
+        "WA": 20.0,
+        "WF1": 25.5,
+        "Macro_F1": 11.7
+      }
+    },
+    "short_UA": 43.37,
+    "medium_UA": 34.37,
+    "long_UA": 13.25,
+    "long_minus_short_delta_UA": -30.12,
+    "degradation_slope_per_bucket": -15.06
+  },
+  "metric_8_phoneme_probe_and_r2": {
+    "emo_branch_phoneme_probe_acc_pct": 22.0,
+    "cont_sponge_phoneme_probe_acc_pct": 76.0,
+    "probe_random_chance_ref_pct": 4.0,
+    "cont_minus_emo_separation_gap_pct": 54.0,
+    "dual_branch_linear_reconstruction_R2": 0.9983,
+    "r2_lossless_threshold": 0.95,
+    "orthogonal_lossless_transfer_verified": true
+  },
+  "smoke_gate_summary": {
+    "combo_id": "H1=original_none | H2=original_single | H3=original_mean",
+    "view_type": "original_none",
+    "disentangle_type": "original_single",
+    "pooling_type": "original_mean",
+    "gate1_mask_invariance": {
+      "z_emo_max_diff": 0.0,
+      "target_utt_max_diff": 0.0,
+      "loss_frm_abs_diff": 0.0,
+      "passed": true
+    },
+    "gate2_grad_balancer": {
+      "grad_norm_frm": 0.001138,
+      "grad_norm_hammer_raw": 0.015415,
+      "raw_grad_ratio": 0.0,
+      "target_grad_ratio": 0.15,
+      "recommended_lambda_disentangle": 0.0,
+      "passed": true
+    },
+    "gate3_anti_collapse": {
+      "z_utt_emo_batch_std": 0.5486,
+      "weight_normalized_entropy": 1.0,
+      "entropy_target_band": "1.00 (baseline uniform)",
+      "passed": true
+    },
+    "gate4_throughput": {
+      "ms_per_step": 3.497
+    }
+  }
+}

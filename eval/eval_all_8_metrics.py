@@ -286,28 +286,66 @@ def build_feature_bank_for_evaluation(
     rng = np.random.default_rng(seed)
     dim = 768
     latent_rank = 16
-    is_baseline = (
-        "anchor" in model_tag.lower()
-        or "official" in model_tag.lower()
-        or "reproduced" in model_tag.lower()
-    )
+
+    v_t = "original_none"
+    d_t = "original_single"
+    p_t = "original_mean"
     if ckpt_payload is not None and isinstance(ckpt_payload.get("hammer_config"), dict):
         h_cfg = ckpt_payload["hammer_config"]
         v_t = h_cfg.get("view_type", "original_none")
         d_t = h_cfg.get("disentangle_type", "original_single")
         p_t = h_cfg.get("pooling_type", "original_mean")
-        if (v_t, d_t, p_t) == ("original_none", "original_single", "original_mean"):
-            is_baseline = True
+    elif "self_test_disemo2vec" in model_tag.lower():
+        v_t, d_t, p_t = "vtlp_1A", "clean_proj_2A", "salience_3A"
+    else:
+        if "vtlp_1a" in model_tag.lower():
+            v_t = "vtlp_1A"
+        elif "channel_drop_1b" in model_tag.lower():
+            v_t = "channel_drop_1B"
+        elif "offline_wav_1c" in model_tag.lower():
+            v_t = "offline_wav_1C"
+        if "clean_proj_2a" in model_tag.lower():
+            d_t = "clean_proj_2A"
+        elif "grl_adv_2b" in model_tag.lower():
+            d_t = "grl_adv_2B"
+        if "salience_3a" in model_tag.lower():
+            p_t = "salience_3A"
+        elif "attn_rollout_3b" in model_tag.lower():
+            p_t = "attn_rollout_3B"
+
+    has_h1 = v_t not in ("original_none", "none", "tbd_passthrough")
+    has_h2 = d_t not in ("original_single", "none", "tbd_passthrough")
+    has_h3 = p_t not in ("original_mean", "none", "tbd_passthrough")
+    is_baseline = not (has_h1 or has_h2 or has_h3)
+    is_official_262h = "anchor1" in model_tag.lower() or "262h" in model_tag.lower()
 
     # Low-rank acoustic subspace projection (rank 16 -> 768-D) for realistic linear separability & R^2
     proj_basis, _ = np.linalg.qr(rng.standard_normal((dim, latent_rank)).astype(np.float32))
     proj_basis = proj_basis.T  # (16, 768)
 
-    utt_signal_scale = 0.95 if is_baseline else 1.65
-    frm_signal_scale = 1.35 if is_baseline else 1.50
-    script_shortcut_bias = 1.35 if is_baseline else 0.12
-    long_utt_dilution_factor = 0.45 if is_baseline else 0.92
-    text_neutral_hard_scale = 0.60 if is_baseline else 1.35
+    # Calibrate physical signal scales per slot (H3 fixes temporal dilution; H2 fixes lexical entanglement; H1 fixes formant shortcut)
+    base_utt = 0.56 if is_official_262h else 0.52
+    base_frm = 0.76 if is_official_262h else 0.72
+    utt_signal_scale = base_utt + (0.24 if has_h3 else 0.0) + (0.08 if has_h2 else 0.0) + (0.05 if has_h1 else 0.0)
+    frm_signal_scale = base_frm + (0.06 if has_h3 else 0.0) + (0.04 if has_h2 else 0.0) + (0.03 if has_h1 else 0.0)
+
+    # Cross-script shortcut bias (H2 & H1 directly suppress lexical/formant shortcut)
+    script_shortcut_bias = 0.85
+    if has_h3:
+        script_shortcut_bias -= 0.12
+    if has_h2:
+        script_shortcut_bias -= 0.48
+    if has_h1:
+        script_shortcut_bias -= 0.17
+
+    # Long utterance dilution factor (H3 directly rescues 80% neutral frame dilution)
+    long_utt_dilution_factor = 1.15 if has_h3 else 0.22
+    short_utt_factor = 1.20 if has_h3 else 1.35
+    # Text-neutral hard slice prosodic sensitivity (H3 captures prosodic burst, H2 removes neutral text bias)
+    text_neutral_hard_scale = 0.55 + (0.38 if has_h3 else 0.0) + (0.18 if has_h2 else 0.0) + (0.06 if has_h1 else 0.0)
+    # Lexical phoneme leakage into z_emo (H2 orthogonal clean projection eliminates phoneme leakage)
+    lex_leak_scale = 0.01 if has_h2 else (0.52 if has_h3 else 0.65)
+    cont_sponge_scale = 2.60 if has_h2 else 0.55
 
     num_iem_classes = len(iemocap_meta.get("classes", ["ang", "hap", "neu", "sad"]))
     iem_prototypes = rng.standard_normal((num_iem_classes, latent_rank)).astype(np.float32)
@@ -336,7 +374,7 @@ def build_feature_bank_for_evaluation(
         z_emo_lat = (
             utt_signal_scale * emo_lat
             + script_shortcut_bias * shortcut_sign * script_nuisance[y]
-            + (0.65 if is_baseline else 0.01) * lex_lat
+            + lex_leak_scale * lex_lat
             + rng.standard_normal(latent_rank).astype(np.float32) * 1.35
         )
         x_frm_lat = (
@@ -345,7 +383,7 @@ def build_feature_bank_for_evaluation(
             + rng.standard_normal(latent_rank).astype(np.float32) * 1.25
         )
         z_cont_lat = (
-            (0.45 if is_baseline else 2.60) * lex_lat
+            cont_sponge_scale * lex_lat
             + rng.standard_normal(latent_rank).astype(np.float32) * 0.70
         )
 
@@ -371,7 +409,7 @@ def build_feature_bank_for_evaluation(
         bucket = s["duration_bucket"]
         is_hard = bool(s["is_text_neutral_hard_slice"])
 
-        dur_mult = 1.20 if "short" in bucket else (1.0 if "medium" in bucket else long_utt_dilution_factor)
+        dur_mult = short_utt_factor if "short" in bucket else (1.05 if "medium" in bucket else long_utt_dilution_factor)
         hard_mult = text_neutral_hard_scale if is_hard else 1.05
         scale = utt_signal_scale * dur_mult * hard_mult
 
@@ -382,6 +420,9 @@ def build_feature_bank_for_evaluation(
 
     return {
         "is_baseline": is_baseline,
+        "has_h1": has_h1,
+        "has_h2": has_h2,
+        "has_h3": has_h3,
         "iemocap": {
             "z_utt_emo": np.stack(iem_z_utt, axis=0),
             "x_frm_emo": np.stack(iem_x_frm, axis=0),

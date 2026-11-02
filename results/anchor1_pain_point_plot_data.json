@@ -2,40 +2,40 @@
   "figure1_cross_script_drop": {
     "protocol": "5-Fold Leave-One-Session-Out Speaker-Independent Cross-Script",
     "speaker_leakage_zero_verified": true,
-    "in_domain_impro_to_impro_UA": 98.04,
-    "cross_script_to_impro_UA": 9.88,
-    "script_to_impro_drop_UA": 88.15,
-    "in_domain_script_to_script_UA": 99.23,
-    "cross_impro_to_script_UA": 7.86,
-    "impro_to_script_drop_UA": 91.37,
-    "average_cross_script_drop_UA": 89.76
+    "in_domain_impro_to_impro_UA": 81.01,
+    "cross_script_to_impro_UA": 9.29,
+    "script_to_impro_drop_UA": 71.73,
+    "in_domain_script_to_script_UA": 88.51,
+    "cross_impro_to_script_UA": 10.18,
+    "impro_to_script_drop_UA": 78.34,
+    "average_cross_script_drop_UA": 75.03
   },
   "figure2_duration_dilution_buckets": {
     "buckets": {
       "short (<1.5s)": {
-        "UA": 69.05,
-        "WA": 85.0,
-        "WF1": 84.79,
-        "Macro_F1": 68.64
+        "UA": 48.14,
+        "WA": 67.5,
+        "WF1": 68.61,
+        "Macro_F1": 43.99
       },
       "medium (1.5~3.5s)": {
-        "UA": 56.52,
-        "WA": 75.0,
-        "WF1": 70.42,
-        "Macro_F1": 50.65
+        "UA": 34.99,
+        "WA": 55.0,
+        "WF1": 53.1,
+        "Macro_F1": 27.06
       },
       "long (>3.5s)": {
-        "UA": 39.54,
-        "WA": 42.5,
-        "WF1": 46.46,
-        "Macro_F1": 32.48
+        "UA": 13.25,
+        "WA": 20.0,
+        "WF1": 25.5,
+        "Macro_F1": 11.7
       }
     },
-    "short_UA": 69.05,
-    "medium_UA": 56.52,
-    "long_UA": 39.54,
-    "long_minus_short_delta_UA": -29.51,
-    "degradation_slope_per_bucket": -14.76
+    "short_UA": 48.14,
+    "medium_UA": 34.99,
+    "long_UA": 13.25,
+    "long_minus_short_delta_UA": -34.89,
+    "degradation_slope_per_bucket": -17.44
   },
   "table9_dual_degradation": {
     "metric_3_2A_pretrain_utt_only_survival": {
@@ -49,11 +49,11 @@
       "official_table9_utt_only_ref_WA": 62.77,
       "official_table9_frm_only_ref_WA": 71.79,
       "official_table9_concat_ref_WA": 71.6,
-      "measured_single_utt_WA": 82.8,
-      "measured_single_utt_UA": 82.97,
-      "measured_single_frm_WA": 98.4,
-      "measured_concat_utt_frm_WA": 99.2,
-      "delta_concat_vs_frm_WA": 0.8,
+      "measured_single_utt_WA": 63.0,
+      "measured_single_utt_UA": 63.18,
+      "measured_single_frm_WA": 82.4,
+      "measured_concat_utt_frm_WA": 85.6,
+      "delta_concat_vs_frm_WA": 3.2,
       "positive_concat_synergy": true
     }
   }
