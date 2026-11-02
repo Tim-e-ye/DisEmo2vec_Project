@@ -24,8 +24,8 @@
 set -euo pipefail
 
 VIEW_TYPE="original_none"           # 卡槽 H1 开关: original_none | vtlp_1A | channel_drop_1B | offline_wav_1C
-DISENTANGLE_TYPE="original_single"  # 卡槽 H2 开关: original_single | clean_proj_2A | grl_adv_2B
-POOLING_TYPE="original_mean"        # 卡槽 H3 开关: original_mean | salience_3A | attn_rollout_3B
+DISENTANGLE_TYPE="original_single"  # 卡槽 H2 开关: original_single | clean_proj_2A | grl_adv_2B | vicreg_cov_2C
+POOLING_TYPE="original_mean"        # 卡槽 H3 开关: original_mean | salience_3A | attn_rollout_3B | autopool_3C
 EPOCHS=25
 BATCH_SIZE=8
 LR="5e-4"

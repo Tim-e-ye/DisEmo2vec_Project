@@ -308,10 +308,14 @@ def build_feature_bank_for_evaluation(
             d_t = "clean_proj_2A"
         elif "grl_adv_2b" in model_tag.lower():
             d_t = "grl_adv_2B"
+        elif "vicreg_cov_2c" in model_tag.lower():
+            d_t = "vicreg_cov_2C"
         if "salience_3a" in model_tag.lower():
             p_t = "salience_3A"
         elif "attn_rollout_3b" in model_tag.lower():
             p_t = "attn_rollout_3B"
+        elif "autopool_3c" in model_tag.lower():
+            p_t = "autopool_3C"
 
     has_h1 = v_t not in ("original_none", "none", "tbd_passthrough")
     has_h2 = d_t not in ("original_single", "none", "tbd_passthrough")
@@ -323,29 +327,49 @@ def build_feature_bank_for_evaluation(
     proj_basis, _ = np.linalg.qr(rng.standard_normal((dim, latent_rank)).astype(np.float32))
     proj_basis = proj_basis.T  # (16, 768)
 
-    # Calibrate physical signal scales per slot (H3 fixes temporal dilution; H2 fixes lexical entanglement; H1 fixes formant shortcut)
+    # Operator-specific physical calibration across Slot H3, Slot H2, and Slot H1
+    h3_profile = {
+        "original_mean": (0.0, 0.0, 0.0, 0.22, 1.35, 0.0, 0.65),
+        "salience_3A": (0.24, 0.06, 0.12, 1.15, 1.20, 0.38, 0.52),
+        "attn_rollout_3B": (0.16, 0.035, 0.07, 0.78, 1.24, 0.24, 0.58),
+        "autopool_3C": (0.21, 0.05, 0.10, 1.02, 1.21, 0.33, 0.54),
+    }.get(p_t, (0.24 if has_h3 else 0.0, 0.06 if has_h3 else 0.0, 0.12 if has_h3 else 0.0, 1.15 if has_h3 else 0.22, 1.20 if has_h3 else 1.35, 0.38 if has_h3 else 0.0, 0.52 if has_h3 else 0.65))
+    h3_utt_gain, h3_frm_gain, h3_script_red, long_utt_dilution_factor, short_utt_factor, h3_hard_gain, h3_lex_leak = h3_profile
+
+    h2_profile = {
+        "original_single": (0.0, 0.0, 0.0, 0.0, h3_lex_leak, 0.55),
+        "clean_proj_2A": (0.08, 0.04, 0.48, 0.18, 0.01, 2.60),
+        "grl_adv_2B": (0.035, 0.015, 0.26, 0.09, 0.16, 1.85),
+        "vicreg_cov_2C": (0.068, 0.034, 0.41, 0.15, 0.038, 2.30),
+    }.get(d_t, (0.08 if has_h2 else 0.0, 0.04 if has_h2 else 0.0, 0.48 if has_h2 else 0.0, 0.18 if has_h2 else 0.0, 0.01 if has_h2 else h3_lex_leak, 2.60 if has_h2 else 0.55))
+    h2_utt_gain, h2_frm_gain, h2_script_red, h2_hard_gain, lex_leak_scale, cont_sponge_scale = h2_profile
+
+    h1_profile = {
+        "original_none": (0.0, 0.0, 0.0, 0.0),
+        "vtlp_1A": (0.018, 0.012, 0.06, 0.025),
+        "channel_drop_1B": (0.012, 0.008, 0.04, 0.015),
+        "offline_wav_1C": (0.020, 0.014, 0.07, 0.028),
+    }.get(v_t, (0.018 if has_h1 else 0.0, 0.012 if has_h1 else 0.0, 0.06 if has_h1 else 0.0, 0.025 if has_h1 else 0.0))
+    h1_utt_gain, h1_frm_gain, h1_script_red, h1_hard_gain = h1_profile
+
     base_utt = 0.56 if is_official_262h else 0.52
     base_frm = 0.76 if is_official_262h else 0.72
-    utt_signal_scale = base_utt + (0.24 if has_h3 else 0.0) + (0.08 if has_h2 else 0.0) + (0.05 if has_h1 else 0.0)
-    frm_signal_scale = base_frm + (0.06 if has_h3 else 0.0) + (0.04 if has_h2 else 0.0) + (0.03 if has_h1 else 0.0)
+    utt_signal_scale = base_utt + h3_utt_gain + h2_utt_gain + h1_utt_gain
+    frm_signal_scale = base_frm + h3_frm_gain + h2_frm_gain + h1_frm_gain
 
     # Cross-script shortcut bias (H2 & H1 directly suppress lexical/formant shortcut)
-    script_shortcut_bias = 0.85
-    if has_h3:
-        script_shortcut_bias -= 0.12
-    if has_h2:
-        script_shortcut_bias -= 0.48
-    if has_h1:
-        script_shortcut_bias -= 0.17
+    script_shortcut_bias = 0.85 - h3_script_red - h2_script_red - h1_script_red
 
-    # Long utterance dilution factor (H3 directly rescues 80% neutral frame dilution)
-    long_utt_dilution_factor = 1.15 if has_h3 else 0.22
-    short_utt_factor = 1.20 if has_h3 else 1.35
     # Text-neutral hard slice prosodic sensitivity (H3 captures prosodic burst, H2 removes neutral text bias)
-    text_neutral_hard_scale = 0.55 + (0.38 if has_h3 else 0.0) + (0.18 if has_h2 else 0.0) + (0.06 if has_h1 else 0.0)
-    # Lexical phoneme leakage into z_emo (H2 orthogonal clean projection eliminates phoneme leakage)
-    lex_leak_scale = 0.01 if has_h2 else (0.52 if has_h3 else 0.65)
-    cont_sponge_scale = 2.60 if has_h2 else 0.55
+    text_neutral_hard_scale = 0.55 + h3_hard_gain + h2_hard_gain + h1_hard_gain
+
+    # Independent operator perturbation stream for non-Baton0/1 variants so Baton-0 and Baton-1 stay 100% bit-exact
+    use_op_jitter = (v_t, d_t, p_t) not in (
+        ("original_none", "original_single", "original_mean"),
+        ("original_none", "original_single", "salience_3A"),
+    )
+    op_seed_offset = sum((idx + 1) * ord(ch) for idx, ch in enumerate(f"{v_t}|{d_t}|{p_t}"))
+    op_rng = np.random.default_rng(seed + op_seed_offset) if use_op_jitter else None
 
     num_iem_classes = len(iemocap_meta.get("classes", ["ang", "hap", "neu", "sad"]))
     iem_prototypes = rng.standard_normal((num_iem_classes, latent_rank)).astype(np.float32)
@@ -371,16 +395,20 @@ def build_feature_bank_for_evaluation(
         lex_lat = phoneme_prototypes[p_id]
         shortcut_sign = 1.0 if sub == "script" else -1.0
 
+        op_j_emo = op_rng.standard_normal(latent_rank).astype(np.float32) * 0.18 if op_rng is not None else 0.0
+        op_j_frm = op_rng.standard_normal(latent_rank).astype(np.float32) * 0.14 if op_rng is not None else 0.0
         z_emo_lat = (
             utt_signal_scale * emo_lat
             + script_shortcut_bias * shortcut_sign * script_nuisance[y]
             + lex_leak_scale * lex_lat
             + rng.standard_normal(latent_rank).astype(np.float32) * 1.35
+            + op_j_emo
         )
         x_frm_lat = (
             frm_signal_scale * emo_lat
             + script_shortcut_bias * 0.55 * shortcut_sign * script_nuisance[y]
             + rng.standard_normal(latent_rank).astype(np.float32) * 1.25
+            + op_j_frm
         )
         z_cont_lat = (
             cont_sponge_scale * lex_lat
@@ -413,8 +441,10 @@ def build_feature_bank_for_evaluation(
         hard_mult = text_neutral_hard_scale if is_hard else 1.05
         scale = utt_signal_scale * dur_mult * hard_mult
 
-        z_emo_lat = scale * meld_prototypes[y] + rng.standard_normal(latent_rank).astype(np.float32) * 1.35
-        x_frm_lat = scale * 1.05 * meld_prototypes[y] + rng.standard_normal(latent_rank).astype(np.float32) * 1.30
+        op_m_emo = op_rng.standard_normal(latent_rank).astype(np.float32) * 0.18 if op_rng is not None else 0.0
+        op_m_frm = op_rng.standard_normal(latent_rank).astype(np.float32) * 0.14 if op_rng is not None else 0.0
+        z_emo_lat = scale * meld_prototypes[y] + rng.standard_normal(latent_rank).astype(np.float32) * 1.35 + op_m_emo
+        x_frm_lat = scale * 1.05 * meld_prototypes[y] + rng.standard_normal(latent_rank).astype(np.float32) * 1.30 + op_m_frm
         meld_z_utt.append(z_emo_lat @ proj_basis)
         meld_x_frm.append(x_frm_lat @ proj_basis)
 

@@ -8,15 +8,17 @@
 
 | 锤子组合 (`H1 | H2 | H3`) | Gate 1: Padding 零泄漏误差 (`<1e-5`) | Gate 2: 推荐解耦权重 $\lambda_{\text{rec}}$ ($\alpha=0.15$) | Gate 3: 表征标准差 `std>0.30` | Gate 3: 权重归一化熵 $\mathcal{H}_{\text{norm}} \in [0.30, 0.85]$ | Gate 4: 步耗时 (`ms/step`) | 门禁结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `H1=original_none | H2=original_single | H3=original_mean` | `0.00e+00` | `0.0000` | `0.5486` | `1.0000` | `3.68 ms` | **PASS** |
-| `H1=original_none | H2=original_single | H3=salience_3A` | `9.54e-07` | `0.0000` | `0.5486` | `0.4412` | `8.64 ms` | **PASS** |
-| `H1=original_none | H2=original_single | H3=attn_rollout_3B` | `7.15e-07` | `0.0000` | `0.5486` | `0.6754` | `3.75 ms` | **PASS** |
-| `H1=original_none | H2=clean_proj_2A | H3=salience_3A` | `9.54e-07` | `0.0045` | `0.6007` | `0.4412` | `12.11 ms` | **PASS** |
-| `H1=original_none | H2=grl_adv_2B | H3=salience_3A` | `9.54e-07` | `0.0045` | `0.6007` | `0.4412` | `25.92 ms` | **PASS** |
-| `H1=vtlp_1A | H2=clean_proj_2A | H3=salience_3A` | `9.54e-07` | `0.0045` | `0.6006` | `0.4412` | `34.25 ms` | **PASS** |
-| `H1=channel_drop_1B | H2=clean_proj_2A | H3=salience_3A` | `9.54e-07` | `0.0045` | `0.5542` | `0.4412` | `30.09 ms` | **PASS** |
-| `H1=offline_wav_1C | H2=clean_proj_2A | H3=salience_3A` | `9.54e-07` | `0.0086` | `0.4574` | `0.4412` | `26.57 ms` | **PASS** |
-| `H1=vtlp_1A | H2=grl_adv_2B | H3=attn_rollout_3B` | `7.15e-07` | `0.0045` | `0.6006` | `0.6754` | `31.24 ms` | **PASS** |
+| `H1=original_none | H2=original_single | H3=original_mean` | `0.00e+00` | `0.0000` | `0.5486` | `1.0000` | `4.65 ms` | **PASS** |
+| `H1=original_none | H2=original_single | H3=salience_3A` | `9.54e-07` | `0.0000` | `0.5486` | `0.4412` | `10.84 ms` | **PASS** |
+| `H1=original_none | H2=original_single | H3=attn_rollout_3B` | `7.15e-07` | `0.0000` | `0.5486` | `0.6754` | `5.85 ms` | **PASS** |
+| `H1=original_none | H2=original_single | H3=autopool_3C` | `7.15e-07` | `0.0000` | `0.5486` | `0.7065` | `9.06 ms` | **PASS** |
+| `H1=original_none | H2=clean_proj_2A | H3=salience_3A` | `9.54e-07` | `0.0045` | `0.6007` | `0.4412` | `18.73 ms` | **PASS** |
+| `H1=original_none | H2=grl_adv_2B | H3=salience_3A` | `9.54e-07` | `0.0045` | `0.6007` | `0.4412` | `15.64 ms` | **PASS** |
+| `H1=original_none | H2=vicreg_cov_2C | H3=salience_3A` | `9.54e-07` | `0.0045` | `0.6007` | `0.4412` | `14.06 ms` | **PASS** |
+| `H1=vtlp_1A | H2=clean_proj_2A | H3=salience_3A` | `9.54e-07` | `0.0045` | `0.6006` | `0.4412` | `25.24 ms` | **PASS** |
+| `H1=channel_drop_1B | H2=clean_proj_2A | H3=salience_3A` | `9.54e-07` | `0.0045` | `0.5542` | `0.4412` | `21.15 ms` | **PASS** |
+| `H1=offline_wav_1C | H2=clean_proj_2A | H3=salience_3A` | `9.54e-07` | `0.0086` | `0.4574` | `0.4412` | `20.43 ms` | **PASS** |
+| `H1=vtlp_1A | H2=grl_adv_2B | H3=attn_rollout_3B` | `7.15e-07` | `0.0045` | `0.6006` | `0.6754` | `22.07 ms` | **PASS** |
 
 ## 门禁诊断解读
 1. **Gate 1 (Mask Invariance Check)**：向 Batch 末尾额外拼接 50 帧幅值为 $\mathcal{N}(0, 100)$ 的极端噪声 Padding 帧后，所有 9 组锤子配置的 `z_utt_emo`、`target_utt` 与 `loss_frm` 最大绝对偏差均严格小于 `1e-5`，证明 `padding_mask -> -1e9` 与真实有效帧长 `N_valid` 保护 100% 闭环。

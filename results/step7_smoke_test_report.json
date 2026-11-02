@@ -1,7 +1,7 @@
 {
   "step": "Step 7 Pre-Flight Smoke Gate (100-Step 4-Gate Verification)",
   "overall_passed": true,
-  "num_combos_tested": 9,
+  "num_combos_tested": 11,
   "combos": [
     {
       "combo_id": "H1=original_none | H2=original_single | H3=original_mean",
@@ -29,7 +29,7 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 3.681,
+        "ms_per_step": 4.648,
         "overhead_vs_baseline_pct": 0.0,
         "passed": true
       },
@@ -61,8 +61,8 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 8.644,
-        "overhead_vs_baseline_pct": 134.83,
+        "ms_per_step": 10.841,
+        "overhead_vs_baseline_pct": 133.24,
         "passed": true
       },
       "overall_passed": true
@@ -93,8 +93,40 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 3.749,
-        "overhead_vs_baseline_pct": 1.85,
+        "ms_per_step": 5.854,
+        "overhead_vs_baseline_pct": 25.95,
+        "passed": true
+      },
+      "overall_passed": true
+    },
+    {
+      "combo_id": "H1=original_none | H2=original_single | H3=autopool_3C",
+      "view_type": "original_none",
+      "disentangle_type": "original_single",
+      "pooling_type": "autopool_3C",
+      "gate1_mask_invariance": {
+        "z_emo_max_diff": 0.0,
+        "target_utt_max_diff": 7.152557373046875e-07,
+        "loss_frm_abs_diff": 0.0,
+        "passed": true
+      },
+      "gate2_grad_balancer": {
+        "grad_norm_frm": 0.00059,
+        "grad_norm_hammer_raw": 0.015415,
+        "raw_grad_ratio": 0.0,
+        "target_grad_ratio": 0.15,
+        "recommended_lambda_disentangle": 0.0,
+        "passed": true
+      },
+      "gate3_anti_collapse": {
+        "z_utt_emo_batch_std": 0.5486,
+        "weight_normalized_entropy": 0.7065,
+        "entropy_target_band": "[0.30, 0.85]",
+        "passed": true
+      },
+      "gate4_throughput": {
+        "ms_per_step": 9.065,
+        "overhead_vs_baseline_pct": 95.03,
         "passed": true
       },
       "overall_passed": true
@@ -125,8 +157,8 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 12.107,
-        "overhead_vs_baseline_pct": 228.91,
+        "ms_per_step": 18.731,
+        "overhead_vs_baseline_pct": 302.99,
         "passed": true
       },
       "overall_passed": true
@@ -157,8 +189,40 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 25.921,
-        "overhead_vs_baseline_pct": 604.18,
+        "ms_per_step": 15.637,
+        "overhead_vs_baseline_pct": 236.42,
+        "passed": true
+      },
+      "overall_passed": true
+    },
+    {
+      "combo_id": "H1=original_none | H2=vicreg_cov_2C | H3=salience_3A",
+      "view_type": "original_none",
+      "disentangle_type": "vicreg_cov_2C",
+      "pooling_type": "salience_3A",
+      "gate1_mask_invariance": {
+        "z_emo_max_diff": 0.0,
+        "target_utt_max_diff": 9.5367431640625e-07,
+        "loss_frm_abs_diff": 0.0,
+        "passed": true
+      },
+      "gate2_grad_balancer": {
+        "grad_norm_frm": 0.000569,
+        "grad_norm_hammer_raw": 0.019137,
+        "raw_grad_ratio": 33.6384,
+        "target_grad_ratio": 0.15,
+        "recommended_lambda_disentangle": 0.0045,
+        "passed": true
+      },
+      "gate3_anti_collapse": {
+        "z_utt_emo_batch_std": 0.6007,
+        "weight_normalized_entropy": 0.4412,
+        "entropy_target_band": "[0.30, 0.85]",
+        "passed": true
+      },
+      "gate4_throughput": {
+        "ms_per_step": 14.061,
+        "overhead_vs_baseline_pct": 202.52,
         "passed": true
       },
       "overall_passed": true
@@ -189,8 +253,8 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 34.246,
-        "overhead_vs_baseline_pct": 830.35,
+        "ms_per_step": 25.243,
+        "overhead_vs_baseline_pct": 443.09,
         "passed": true
       },
       "overall_passed": true
@@ -221,8 +285,8 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 30.092,
-        "overhead_vs_baseline_pct": 717.5,
+        "ms_per_step": 21.151,
+        "overhead_vs_baseline_pct": 355.06,
         "passed": true
       },
       "overall_passed": true
@@ -253,8 +317,8 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 26.574,
-        "overhead_vs_baseline_pct": 621.92,
+        "ms_per_step": 20.429,
+        "overhead_vs_baseline_pct": 339.52,
         "passed": true
       },
       "overall_passed": true
@@ -285,8 +349,8 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 31.242,
-        "overhead_vs_baseline_pct": 748.74,
+        "ms_per_step": 22.065,
+        "overhead_vs_baseline_pct": 374.72,
         "passed": true
       },
       "overall_passed": true

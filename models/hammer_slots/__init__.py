@@ -23,11 +23,13 @@ from .slot_h2_disentangle import (
     h2_clean_proj_2A,
     h2_grl_adversarial_2B,
     h2_original_single,
+    h2_vicreg_cov_2C,
 )
 from .slot_h3_pooling import (
     H3_CANDIDATE_FUNCTIONS,
     HammerSlotH3_TemporalAggregator,
     attn_rollout_pooling_3B,
+    autopool_pooling_3C,
     h3_original_mean,
     salience_pooling_3A,
 )
@@ -50,7 +52,9 @@ __all__ = [
     "h2_original_single",
     "h2_clean_proj_2A",
     "h2_grl_adversarial_2B",
+    "h2_vicreg_cov_2C",
     "h3_original_mean",
     "salience_pooling_3A",
     "attn_rollout_pooling_3B",
+    "autopool_pooling_3C",
 ]

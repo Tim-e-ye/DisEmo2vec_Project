@@ -221,12 +221,144 @@ def h2_grl_adversarial_2B(
     return res
 
 
+def h2_vicreg_cov_2C(
+    z_emo: Any,
+    z_cont: Any,
+    y_teacher_sal: Any,
+    p_hubert_target: Optional[Any] = None,
+    gamma_var: float = 0.5,
+    use_teacher_clean_projection: bool = True,
+    lambda_dis: float = 0.0045,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """
+    [候选锤头 2C]：VICReg 跨分支协方差去相关与方差铰链防坍缩解耦锤（源自 Bardes et al., ICLR 2022
+    "VICReg: Variance-Invariance-Covariance Regularization"）。
+    四步阻抗匹配转译：
+      1. 100% 零簇表/零外部标签无监督解耦：计算 Batch 内中心化并 L2 归一化后的情感表征 Z_tilde_emo (B, D)
+         与内容表征 Z_tilde_cont (B, D) 的跨分支互协方差矩阵 C_cross = (1 / max(B-1, 1)) Z_tilde_emo^T Z_tilde_cont (D, D)；
+      2. 跨子空间协方差归零 + 防坍缩方差地板：L_cov = (1 / D) ||C_cross||_F^2，配合方差铰链项
+         L_var = 0.5 * (v(Z_emo) + v(Z_cont)) (gamma = 0.5)，定义 L_dis = L_cov + 0.5 * L_var；
+      3. 保留 Teacher 净水投影 + 动态 lambda_dis 配平：y^T_clean = y^T_sal - <y^T_sal, u_hat_cont> u_hat_cont，
+         总损失 L_total_h2 = L_utt + 0.25 * L_sponge + lambda_dis * L_dis；
+      4. 精确退化旋钮：当 lambda_dis == 0.0 时精确退化回无正交惩罚基线。
+    """
+    eps = 1e-4
+
+    if HAS_TORCH and isinstance(z_emo, torch.Tensor):
+        bsz, dim = z_emo.shape
+        y_sal_sg = y_teacher_sal.detach()
+
+        # Step 3: Teacher clean projection
+        if use_teacher_clean_projection:
+            u_hat_cont = z_cont.detach() / (torch.norm(z_cont.detach(), p=2, dim=-1, keepdim=True) + 1e-6)
+            proj_coeff = torch.sum(y_sal_sg * u_hat_cont, dim=-1, keepdim=True)
+            y_res_cont = (proj_coeff * u_hat_cont).detach()
+            y_clean = (y_sal_sg - y_res_cont).detach()
+        else:
+            y_clean = y_sal_sg
+            y_res_cont = y_sal_sg
+
+        l_utt = F.mse_loss(z_emo, y_clean)
+        # Zero-cluster residual content sponge absorption
+        l_sponge = F.mse_loss(z_cont, y_res_cont)
+
+        # Step 1 & 2: Batch-centered L2-normalized cross-covariance C_cross + variance hinge floor
+        z_e_f = z_emo.float()
+        z_c_f = z_cont.float()
+        z_e_cent = z_e_f - z_e_f.mean(dim=0, keepdim=True)
+        z_c_cent = z_c_f - z_c_f.mean(dim=0, keepdim=True)
+
+        std_e = torch.sqrt(z_e_cent.var(dim=0, unbiased=False) + eps)
+        std_c = torch.sqrt(z_c_cent.var(dim=0, unbiased=False) + eps)
+        v_emo = torch.mean(F.relu(float(gamma_var) - std_e))
+        v_cont = torch.mean(F.relu(float(gamma_var) - std_c))
+        l_var = 0.5 * (v_emo + v_cont)
+
+        z_e_norm = F.normalize(z_e_cent, p=2, dim=-1, eps=1e-6)
+        z_c_norm = F.normalize(z_c_cent, p=2, dim=-1, eps=1e-6)
+        denom = float(max(bsz - 1, 1))
+        c_cross = torch.matmul(z_e_norm.transpose(0, 1), z_c_norm) / denom  # (D, D)
+        l_cov = torch.sum(c_cross * c_cross) / float(dim)
+
+        l_dis = (l_cov + 0.5 * l_var).to(z_emo.dtype)
+        l_total_h2 = l_utt + 0.25 * l_sponge + float(lambda_dis) * l_dis
+
+        return {
+            "slot": "H2",
+            "disentangle_type": "vicreg_cov_2C",
+            "status": "[ACTIVE_TRIAL]",
+            "lambda_dis": float(lambda_dis),
+            "loss_utt": l_utt,
+            "loss_sponge": l_sponge,
+            "loss_dis": l_dis,
+            "loss_cov": l_cov.to(z_emo.dtype),
+            "loss_var": l_var.to(z_emo.dtype),
+            "loss_total_h2": l_total_h2,
+            "y_teacher_clean": y_clean,
+            "uses_external_human_labels": False,
+            "zero_cluster_table_required": True,
+            "downstream_extra_params": 0,
+            "teacher_backflow_blocked": bool(use_teacher_clean_projection),
+        }
+
+    # ---------------- NumPy 离线自检兼容路径 ----------------
+    z_emo_np = to_numpy(z_emo).astype(np.float32)
+    z_cont_np = to_numpy(z_cont).astype(np.float32)
+    y_sal_np = to_numpy(y_teacher_sal).astype(np.float32)
+    bsz, dim = z_emo_np.shape
+
+    u_hat = z_cont_np / (np.linalg.norm(z_cont_np, axis=-1, keepdims=True) + 1e-6)
+    proj = np.sum(y_sal_np * u_hat, axis=-1, keepdims=True)
+    y_res_cont = proj * u_hat
+    y_clean = y_sal_np - y_res_cont if use_teacher_clean_projection else y_sal_np
+
+    l_utt_val = float(np.mean((z_emo_np - y_clean) ** 2))
+    l_sponge_val = float(np.mean((z_cont_np - y_res_cont) ** 2))
+
+    z_e_cent = z_emo_np - np.mean(z_emo_np, axis=0, keepdims=True)
+    z_c_cent = z_cont_np - np.mean(z_cont_np, axis=0, keepdims=True)
+    std_e = np.sqrt(np.var(z_e_cent, axis=0) + eps)
+    std_c = np.sqrt(np.var(z_c_cent, axis=0) + eps)
+    v_emo = float(np.mean(np.maximum(0.0, float(gamma_var) - std_e)))
+    v_cont = float(np.mean(np.maximum(0.0, float(gamma_var) - std_c)))
+    l_var_val = 0.5 * (v_emo + v_cont)
+
+    z_e_norm = z_e_cent / (np.linalg.norm(z_e_cent, axis=-1, keepdims=True) + 1e-6)
+    z_c_norm = z_c_cent / (np.linalg.norm(z_c_cent, axis=-1, keepdims=True) + 1e-6)
+    denom = float(max(bsz - 1, 1))
+    c_cross = (z_e_norm.T @ z_c_norm) / denom
+    l_cov_val = float(np.sum(c_cross * c_cross) / float(dim))
+
+    l_dis_val = l_cov_val + 0.5 * l_var_val
+    l_total_val = l_utt_val + 0.25 * l_sponge_val + float(lambda_dis) * l_dis_val
+
+    return {
+        "slot": "H2",
+        "disentangle_type": "vicreg_cov_2C",
+        "status": "[ACTIVE_TRIAL]",
+        "lambda_dis": float(lambda_dis),
+        "loss_utt": l_utt_val,
+        "loss_sponge": l_sponge_val,
+        "loss_dis": l_dis_val,
+        "loss_cov": l_cov_val,
+        "loss_var": l_var_val,
+        "loss_total_h2": l_total_val,
+        "y_teacher_clean": y_clean,
+        "uses_external_human_labels": False,
+        "zero_cluster_table_required": True,
+        "downstream_extra_params": 0,
+        "teacher_backflow_blocked": bool(use_teacher_clean_projection),
+    }
+
+
 H2_CANDIDATE_FUNCTIONS: Dict[str, Callable] = {
     "original_single": h2_original_single,
     "tbd_passthrough": h2_original_single,
     "clean_proj_2A": h2_clean_proj_2A,
     "v0_chunk_sponge_clean_proj": h2_clean_proj_2A,
     "grl_adv_2B": h2_grl_adversarial_2B,
+    "vicreg_cov_2C": h2_vicreg_cov_2C,
 }
 
 
@@ -247,7 +379,7 @@ class HammerSlotH2_Disentangler(BaseModule):
         - "【H2 防挑刺红线】100% 零外部人工标签；通过 Teacher 目标净水投影 + 共享分类头 sg(W_c) 均匀分布最大熵双保险阻断词汇回流；下游推理零额外参数开销！"
       broken_assumptions:
         - "精确修复 [SYM-E2V-S3-02 / S3-03] 的失效假设 B 与隐性缺陷 B1：将词汇音素正交分流至内容海绵分支，净化情感全局表征。"
-      reserved_slot_id: "[SLOT-H2: original_single | clean_proj_2A | grl_adv_2B]"
+      reserved_slot_id: "[SLOT-H2: original_single | clean_proj_2A | grl_adv_2B | vicreg_cov_2C]"
     """
 
     def __init__(
@@ -337,6 +469,15 @@ class HammerSlotH2_Disentangler(BaseModule):
                 num_clusters=self.num_phoneme_clusters,
                 use_teacher_clean_projection=self.use_teacher_clean_projection,
                 use_max_entropy_uniform_kl=self.use_max_entropy_uniform_kl,
+                lambda_dis=self.lambda_dis,
+            )
+        elif mode == "vicreg_cov_2C":
+            meta = h2_vicreg_cov_2C(
+                z_emo,
+                z_cont,
+                y_teacher_sal,
+                p_hubert_target,
+                use_teacher_clean_projection=self.use_teacher_clean_projection,
                 lambda_dis=self.lambda_dis,
             )
         elif mode in H2_CANDIDATE_FUNCTIONS:

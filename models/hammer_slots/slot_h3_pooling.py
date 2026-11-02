@@ -171,20 +171,30 @@ def attn_rollout_pooling_3B(
     e_np = np.zeros((bsz, n_frames), dtype=np.float32) if frame_energy is None else to_numpy(frame_energy)
     gate_g = 1.0 / (1.0 + np.exp(-np.clip(e_np, -20.0, 20.0)))
 
+    if padding_mask is not None:
+        pad_np = np.asarray(to_numpy(padding_mask), dtype=bool)
+        valid_np = (~pad_np).astype(np.float32)
+        n_valid = np.maximum(np.sum(valid_np, axis=1, keepdims=True), 1.0)
+        y_bar = np.sum(y_np * valid_np[:, :, None], axis=1, keepdims=True) / n_valid[:, :, None]
+    else:
+        pad_np = None
+        valid_np = np.ones((bsz, n_frames), dtype=np.float32)
+        n_valid = np.full((bsz, 1), float(n_frames), dtype=np.float32)
+        y_bar = y_np.mean(axis=1, keepdims=True)
+
     if attn_weights is not None:
         raw_attn = to_numpy(attn_weights)
     else:
-        y_norm = y_np / (np.linalg.norm(y_np, axis=-1, keepdims=True) + 1e-6)
-        sim_mat = np.matmul(y_norm, np.transpose(y_norm, (0, 2, 1)))
-        raw_attn = np.linalg.norm(y_np - y_np.mean(axis=1, keepdims=True), axis=-1) * (1.0 - np.mean(sim_mat, axis=-1))
+        y_masked = y_np * valid_np[:, :, None]
+        y_norm = y_masked / (np.linalg.norm(y_masked, axis=-1, keepdims=True) + 1e-6)
+        sim_mat = np.matmul(y_norm, np.transpose(y_norm, (0, 2, 1))) * valid_np[:, None, :]
+        mean_sim = np.sum(sim_mat, axis=-1) / n_valid
+        raw_attn = np.linalg.norm(y_np - y_bar, axis=-1) * (1.0 - mean_sim)
 
     sal_s = gate_g * raw_attn
     scaled = sal_s / max(temperature_tau_s, 1e-4)
-    if padding_mask is not None:
-        pad_np = np.asarray(padding_mask, dtype=bool)
+    if pad_np is not None:
         scaled = np.where(pad_np, -1e9, scaled)
-    else:
-        pad_np = None
 
     scaled = scaled - np.max(scaled, axis=-1, keepdims=True)
     exp_s = np.exp(scaled)
@@ -209,12 +219,131 @@ def attn_rollout_pooling_3B(
     }
 
 
+def autopool_pooling_3C(
+    target_layer_results: Any,
+    frame_energy: Optional[Any] = None,
+    padding_mask: Optional[Any] = None,
+    alpha_autopool: float = 2.0,
+    **kwargs: Any,
+) -> Tuple[Any, Any, Dict[str, Any]]:
+    """
+    [候选锤头 3C]：AutoPool 自适应指数池化（源自 McFee et al., IEEE/ACM TASLP 2018
+    "Adaptive pooling operators for weakly labeled sound event detection"）。
+    四步阻抗匹配转译：
+      1. 无监督输入与 LayerNorm_t 范数解耦：由于 Teacher Top-8 层输出带有恒定范数 ||y^T_i||_2 ≈ 27.71，
+         严禁直接对 ||y^T_i||_2 做指数池化；先在有效帧 (1 - pad_mask) 上计算有声偏离度
+         r_i = sigma(e_tilde_i) * ||y^T_i - y_bar^T||_2，并在句内有效时间步上执行 LayerNorm_t 标准化得 s_hat_i；
+      2. 自适应指数缩放：引入连续可调参数 alpha_autopool >= 0（默认 2.0），计算 l_i = alpha * s_hat_i；
+      3. Padding 掩码 -1e9 防泄漏护栏：在 FP32 Softmax 前对 padding_mask == True 强制 masked_fill(-1e9)，确保补零帧 w_i = 0；
+      4. 精确退化旋钮：当 alpha_autopool == 0.0 时，100% 精确退化回 original_mean (w_i = I(~pad_i) / N_valid)。
+    """
+    eps = 1e-6
+    alpha_val = float(alpha_autopool)
+    if abs(alpha_val) < 1e-12:
+        utt_out, w_out, meta = h3_original_mean(
+            target_layer_results, frame_energy=frame_energy, padding_mask=padding_mask
+        )
+        meta["pooling_type"] = "autopool_3C"
+        meta["status"] = "[ACTIVE_TRIAL]"
+        meta["alpha_autopool"] = 0.0
+        meta["silence_suppressed"] = True
+        return utt_out, w_out, meta
+
+    if HAS_TORCH and isinstance(target_layer_results, torch.Tensor):
+        y_t = target_layer_results.detach()
+        bsz, n_frames, _ = y_t.shape
+        if frame_energy is None:
+            frame_energy = torch.zeros((bsz, n_frames), device=y_t.device, dtype=y_t.dtype)
+        else:
+            frame_energy = frame_energy.detach()
+
+        if padding_mask is not None and isinstance(padding_mask, torch.Tensor):
+            pad_bool = padding_mask.bool().to(y_t.device)
+            valid_f = (~pad_bool).float()  # (B, N)
+            n_valid = valid_f.sum(dim=1, keepdim=True).clamp_min(1.0)
+            y_bar = torch.sum(y_t.float() * valid_f.unsqueeze(-1), dim=1, keepdim=True) / n_valid.unsqueeze(-1)
+        else:
+            pad_bool = None
+            valid_f = torch.ones((bsz, n_frames), device=y_t.device, dtype=torch.float32)
+            n_valid = torch.full((bsz, 1), float(n_frames), device=y_t.device, dtype=torch.float32)
+            y_bar = y_t.float().mean(dim=1, keepdim=True)
+
+        # Step 1: Voiced deviation + temporal LayerNorm_t over valid frames
+        dev_d = torch.norm(y_t.float() - y_bar, p=2, dim=-1)
+        voiced_gate = torch.sigmoid(frame_energy.float())
+        raw_r = (voiced_gate * dev_d) * valid_f
+        mean_r = raw_r.sum(dim=1, keepdim=True) / n_valid
+        var_r = (((raw_r - mean_r) * valid_f) ** 2).sum(dim=1, keepdim=True) / n_valid
+        s_hat = (raw_r - mean_r) / torch.sqrt(var_r + eps)
+
+        # Step 2 & 3: Adaptive alpha scaling + FP32 -1e9 padding mask guard
+        scaled_logits = (alpha_val * s_hat).float()
+        if pad_bool is not None:
+            scaled_logits = scaled_logits.masked_fill(pad_bool, -1e9)
+
+        weights_w = F.softmax(scaled_logits, dim=-1).to(y_t.dtype).detach()
+        if pad_bool is not None:
+            weights_w = weights_w.masked_fill(pad_bool, 0.0)
+        target_utt = torch.sum(weights_w.unsqueeze(-1) * y_t, dim=1).detach()
+        sum_ok = bool(
+            torch.allclose(
+                weights_w.sum(dim=-1),
+                torch.ones(bsz, device=y_t.device, dtype=y_t.dtype),
+                atol=1e-4,
+            )
+        )
+    else:
+        y_np = to_numpy(target_layer_results)
+        bsz, n_frames, _ = y_np.shape
+        e_np = np.zeros((bsz, n_frames), dtype=np.float32) if frame_energy is None else to_numpy(frame_energy)
+
+        if padding_mask is not None:
+            pad_np = np.asarray(padding_mask, dtype=bool)
+            valid_np = (~pad_np).astype(np.float32)
+            n_valid = np.maximum(np.sum(valid_np, axis=1, keepdims=True), 1.0)
+            y_bar = np.sum(y_np * valid_np[:, :, None], axis=1, keepdims=True) / n_valid[:, :, None]
+        else:
+            pad_np = None
+            valid_np = np.ones((bsz, n_frames), dtype=np.float32)
+            n_valid = np.full((bsz, 1), float(n_frames), dtype=np.float32)
+            y_bar = y_np.mean(axis=1, keepdims=True)
+
+        dev_d = np.linalg.norm(y_np - y_bar, axis=-1)
+        gate_g = 1.0 / (1.0 + np.exp(-np.clip(e_np, -20.0, 20.0)))
+        raw_r = (gate_g * dev_d) * valid_np
+        mean_r = np.sum(raw_r, axis=1, keepdims=True) / n_valid
+        var_r = np.sum(((raw_r - mean_r) * valid_np) ** 2, axis=1, keepdims=True) / n_valid
+        s_hat = (raw_r - mean_r) / np.sqrt(var_r + eps)
+
+        scaled = alpha_val * s_hat
+        if pad_np is not None:
+            scaled = np.where(pad_np, -1e9, scaled)
+        scaled = scaled - np.max(scaled, axis=-1, keepdims=True)
+        exp_s = np.exp(scaled)
+        if pad_np is not None:
+            exp_s = np.where(pad_np, 0.0, exp_s)
+        weights_w = exp_s / np.maximum(np.sum(exp_s, axis=-1, keepdims=True), 1e-12)
+        target_utt = np.sum(weights_w[:, :, None] * y_np, axis=1)
+        sum_ok = bool(np.allclose(np.sum(weights_w, axis=-1), 1.0, atol=1e-4))
+
+    return target_utt, weights_w, {
+        "slot": "H3",
+        "pooling_type": "autopool_3C",
+        "status": "[ACTIVE_TRIAL]",
+        "alpha_autopool": alpha_val,
+        "silence_suppressed": True,
+        "padding_masked_zero": True,
+        "weights_sum_to_one": sum_ok,
+    }
+
+
 H3_CANDIDATE_FUNCTIONS: Dict[str, Callable] = {
     "original_mean": h3_original_mean,
     "tbd_passthrough": h3_original_mean,
     "salience_3A": salience_pooling_3A,
     "v0_voiced_bg_deviation_pooling": salience_pooling_3A,
     "attn_rollout_3B": attn_rollout_pooling_3B,
+    "autopool_3C": autopool_pooling_3C,
 }
 
 
@@ -235,19 +364,21 @@ class HammerSlotH3_TemporalAggregator(BaseModule):
         - "【H3 防挑刺红线】严禁将纯静音帧 (e_tilde_i << 0) 误判为高权重帧（防 |e_tilde_i| 静音反噬漏洞）；兼顾高唤醒爆发与低唤醒叹息情绪！"
       broken_assumptions:
         - "精确修复 [SYM-E2V-S3-03] 的失效假设 A：打破 1/N_valid 无差别平均造成的 80% 平淡帧稀释瓶颈。"
-      reserved_slot_id: "[SLOT-H3: original_mean | salience_3A | attn_rollout_3B]"
+      reserved_slot_id: "[SLOT-H3: original_mean | salience_3A | attn_rollout_3B | autopool_3C]"
     """
 
     def __init__(
         self,
         active_card: str = "original_mean",
         temperature_tau_s: float = 0.5,
+        alpha_autopool: float = 2.0,
     ) -> None:
         super().__init__()
         self.slot_id = "H3"
         self.active_card = active_card
         self.status = "[TBD]" if active_card in ("original_mean", "tbd_passthrough") else "[ACTIVE_TRIAL]"
         self.temperature_tau_s = float(temperature_tau_s)
+        self.alpha_autopool = float(alpha_autopool)
 
     def forward(
         self,
@@ -277,6 +408,13 @@ class HammerSlotH3_TemporalAggregator(BaseModule):
                 attn_weights=attn_weights,
                 padding_mask=padding_mask,
                 temperature_tau_s=self.temperature_tau_s,
+            )
+        elif mode == "autopool_3C":
+            target_utt, weights_w, meta = autopool_pooling_3C(
+                y_teacher_frames,
+                frame_energy_std,
+                padding_mask=padding_mask,
+                alpha_autopool=self.alpha_autopool,
             )
         elif mode in H3_CANDIDATE_FUNCTIONS:
             target_utt, weights_w, meta = H3_CANDIDATE_FUNCTIONS[mode](

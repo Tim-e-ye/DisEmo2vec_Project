@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-02T18:32:33.761455",
+  "timestamp": "2026-11-02T20:30:38.764843",
   "execution_mode": "REMOTE_SSH_GPU (autodl-pilot @ connect.westd.seetacloud.com:31527 | autodl-pro-79363e4a3db9 | NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887 MiB, 595.71.05 | PyTorch 2.8.0+cu128 (CUDA 12.8, avail=True))",
   "ssh_probe_records": [
     {
@@ -25,10 +25,7 @@
     }
   ],
   "stage_telemetry": {
-    "Anchor-1": {
-      "device": "cuda:0",
-      "total_wall_sec": 18.481
-    },
+    "Anchor-1": {},
     "Baton-0": {
       "device": "cuda:0",
       "smoke_gate_sec": 0.262,
@@ -42,13 +39,61 @@
       "pretrain_25ep_sec": 46.585,
       "eval_8metrics_sec": 4.062,
       "total_wall_sec": 51.203
+    },
+    "H3-PK-3B": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 0.285,
+      "pretrain_25ep_sec": 55.465,
+      "eval_8metrics_sec": 4.127,
+      "total_wall_sec": 59.877
+    },
+    "H3-PK-3C": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 0.318,
+      "pretrain_25ep_sec": 50.713,
+      "eval_8metrics_sec": 3.575,
+      "total_wall_sec": 54.605
+    },
+    "Baton2-H2-2A": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 0.541,
+      "pretrain_25ep_sec": 44.013,
+      "eval_8metrics_sec": 3.942,
+      "total_wall_sec": 48.496
+    },
+    "Baton2-H2-2B": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 0.527,
+      "pretrain_25ep_sec": 46.102,
+      "eval_8metrics_sec": 4.363,
+      "total_wall_sec": 50.992
+    },
+    "Baton2-H2-2C": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 0.653,
+      "pretrain_25ep_sec": 46.529,
+      "eval_8metrics_sec": 3.759,
+      "total_wall_sec": 50.94
+    },
+    "Baton3-H1-1A": {
+      "device": "cuda:0",
+      "smoke_gate_sec": 0.907,
+      "pretrain_25ep_sec": 44.025,
+      "eval_8metrics_sec": 4.071,
+      "total_wall_sec": 49.003
     }
   },
   "completed_stages": [
-    "Anchor-1 (anchor1_official_262h)",
-    "Baton-0 / Anchor-2 (trial_H1-original_none_H2-original_single_H3-original_mean_ep25)",
-    "Baton-1 (trial_H1-original_none_H2-original_single_H3-salience_3A_ep25)"
+    "Anchor-1 (Official 262h) (anchor1_official_262h)",
+    "Baton-0 / Anchor-2 (89h 25-ep Original Mean) (trial_H1-original_none_H2-original_single_H3-original_mean_ep25)",
+    "Baton-1 / H3-PK-3A (89h 25-ep salience_3A) (trial_H1-original_none_H2-original_single_H3-salience_3A_ep25)",
+    "H3-PK-3B (89h 25-ep attn_rollout_3B) (trial_H1-original_none_H2-original_single_H3-attn_rollout_3B_ep25)",
+    "H3-PK-3C (89h 25-ep autopool_3C) (trial_H1-original_none_H2-original_single_H3-autopool_3C_ep25)",
+    "Baton2-H2-2A (salience_3A + clean_proj_2A) (trial_H1-original_none_H2-clean_proj_2A_H3-salience_3A_ep25)",
+    "Baton2-H2-2B (salience_3A + grl_adv_2B) (trial_H1-original_none_H2-grl_adv_2B_H3-salience_3A_ep25)",
+    "Baton2-H2-2C (salience_3A + vicreg_cov_2C) (trial_H1-original_none_H2-vicreg_cov_2C_H3-salience_3A_ep25)",
+    "Baton3-H1-1A (vtlp_1A + clean_proj_2A + salience_3A) (trial_H1-vtlp_1A_H2-clean_proj_2A_H3-salience_3A_ep25)"
   ],
   "leaderboard_csv": "results/leaderboard.csv",
-  "comparison_report_md": "results/step7_baton0_vs_baton1_comparison.md"
+  "tournament_report_md": "results/step7_full_pk_tournament_report.md"
 }
