@@ -29,6 +29,7 @@ POOLING_TYPE="original_mean"        # 卡槽 H3 开关: original_mean | salience
 EPOCHS=25
 BATCH_SIZE=8
 LR="5e-4"
+LAMBDA_DIS="auto"
 FORCE_TRAIN=0
 CKPT_ROOT="/root/autodl-tmp/checkpoints"
 MANIFEST_DIR="manifests"
@@ -58,6 +59,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --lr)
             LR="$2"
+            shift 2
+            ;;
+        --lambda_dis|--lambda-dis)
+            LAMBDA_DIS="$2"
             shift 2
             ;;
         --ckpt-root)
@@ -110,7 +115,7 @@ python3 scripts/smoke_test_hammer.py \
 # Step 2: 真实预训练引擎（若权重尚未生成或指定 --force-train，则立即训练落盘）
 # ------------------------------------------------------------------------------
 if [[ ! -f "${TRIAL_CKPT}" || "${FORCE_TRAIN}" -eq 1 ]]; then
-    echo "[Step 2/3] 启动真实预训练 scripts/train_wind_tunnel.py (${EPOCHS} Epochs)..."
+    echo "[Step 2/3] 启动真实预训练 scripts/train_wind_tunnel.py (${EPOCHS} Epochs, lambda_dis=${LAMBDA_DIS})..."
     python3 scripts/train_wind_tunnel.py \
         --manifest-dir "${MANIFEST_DIR}" \
         --view_type "${VIEW_TYPE}" \
@@ -119,6 +124,7 @@ if [[ ! -f "${TRIAL_CKPT}" || "${FORCE_TRAIN}" -eq 1 ]]; then
         --epochs "${EPOCHS}" \
         --batch-size "${BATCH_SIZE}" \
         --lr "${LR}" \
+        --lambda_dis "${LAMBDA_DIS}" \
         --save-ckpt "${TRIAL_CKPT}"
 else
     echo "[Step 2/3] 检测到已存在真实训练权重 ${TRIAL_CKPT}，直接复用（如需重训请加 --force-train）。"

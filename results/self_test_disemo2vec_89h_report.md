@@ -1,5 +1,7 @@
 # 8-Metric Wind-Tunnel Evaluation Report — `DisEmo2vec (89h Candidate + v0 Hammers)`
 
+- **Checkpoint Verification**: `SMOKE_PIPELINE_TEST`
+- **Checkpoint Path**: `NONE (SMOKE_PIPELINE_TEST)`
 - **Model Tag**: `self_test_disemo2vec_89h`
 - **Backbone Frozen**: `True`
 - **Linear Probe Parameters**: `197,892` (`<= 0.20M` verified: `True`)

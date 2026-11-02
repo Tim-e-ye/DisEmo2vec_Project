@@ -1,6 +1,9 @@
 {
   "model_name": "DisEmo2vec (89h Candidate + v0 Hammers)",
   "model_tag": "self_test_disemo2vec_89h",
+  "checkpoint_verification": "SMOKE_PIPELINE_TEST",
+  "checkpoint_path": "NONE (SMOKE_PIPELINE_TEST)",
+  "hammer_config": {},
   "protocol_locked": "EXP_BLUEPRINT_V2_1_FIXED_NAILS_TBD_HAMMERS",
   "backbone_frozen": true,
   "metric_1_and_2_main_table": {

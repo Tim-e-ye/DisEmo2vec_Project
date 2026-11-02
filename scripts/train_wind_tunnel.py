@@ -138,6 +138,7 @@ def train_wind_tunnel(
     save_ckpt: Path,
     max_batches_per_epoch: int = 0,
     seed: int = 42,
+    lambda_dis_arg: str = "auto",
 ) -> Dict[str, Any]:
     # =========================================================================
     # 1. Pre-Flight Smoke Gate & Grad-Norm Auto-Balancer
@@ -160,9 +161,14 @@ def train_wind_tunnel(
         )
 
     rec_lambda = float(smoke_res["gate2_grad_balancer"]["recommended_lambda_disentangle"])
-    active_lambda = rec_lambda if rec_lambda > 0.0 else 0.10
+    if str(lambda_dis_arg).strip().lower() in ("auto", ""):
+        active_lambda = rec_lambda if rec_lambda > 0.0 else 0.0045
+        lambda_source = "auto_grad_balancer"
+    else:
+        active_lambda = float(lambda_dis_arg)
+        lambda_source = "manual_cli_override"
     print(
-        f"  >> Pre-Flight Gate PASSED! Auto-calibrated lambda_disentangle = {active_lambda:.4f}"
+        f"  >> Pre-Flight Gate PASSED! Active lambda_dis = {active_lambda:.4f} (source={lambda_source}, recommended={rec_lambda:.4f})"
     )
 
     # =========================================================================
@@ -197,6 +203,7 @@ def train_wind_tunnel(
         active_card=disentangle_type,
         embed_dim=D,
         num_phoneme_clusters=num_clusters,
+        lambda_dis=active_lambda,
     )
     h3_slot = HammerSlotH3_TemporalAggregator(
         active_card=pooling_type,
@@ -460,6 +467,14 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument(
+        "--lambda_dis",
+        "--lambda-dis",
+        dest="lambda_dis",
+        type=str,
+        default="auto",
+        help="Disentanglement loss weight lambda_dis ('auto' uses smoke-gate recommended_lambda_disentangle, or specify float)",
+    )
+    parser.add_argument(
         "--save-ckpt",
         type=str,
         required=True,
@@ -490,6 +505,7 @@ def main() -> int:
         save_ckpt=save_ckpt,
         max_batches_per_epoch=args.max_batches_per_epoch,
         seed=args.seed,
+        lambda_dis_arg=args.lambda_dis,
     )
     return 0
 

@@ -254,10 +254,10 @@ flowchart TD
 
 ---
 
-<!-- [SYM-E2V-SLOT-H2:START] file="models/hammer_slots/slot_h2_disentangle.py" lines="227-357" ast_hash="4bd5f33a" -->
+<!-- [SYM-E2V-SLOT-H2:START] file="models/hammer_slots/slot_h2_disentangle.py" lines="233-368" ast_hash="412f427a" -->
 ### `[SYM-E2V-SLOT-H2]` 卡槽 H2 词汇-情感正交净水解耦锤 (支持 --disentangle_type 开关热插拔) (`HammerSlotH2_Disentangler`)
 
-- **绑定源码坐标**：[slot_h2_disentangle.py (L227-L357)](file:///D:/Code/VibeCode/Antigravity/Project/DisEmo2vec_Project/models/hammer_slots/slot_h2_disentangle.py#L227-L357) | **拓扑层**：`SLOT-H2` | **AST 指纹**：`4bd5f33a`
+- **绑定源码坐标**：[slot_h2_disentangle.py (L233-L368)](file:///D:/Code/VibeCode/Antigravity/Project/DisEmo2vec_Project/models/hammer_slots/slot_h2_disentangle.py#L233-L368) | **拓扑层**：`SLOT-H2` | **AST 指纹**：`412f427a`
 - **输入张量契约 (`tensor_input`)**：`z_emo: FloatTensor[B, 768], z_cont: FloatTensor[B, 768], y_teacher_sal: FloatTensor[B, 768], p_hubert_target: FloatTensor[B, 500]`
 - **输出张量契约 (`tensor_output`)**：`h2_meta: Dict[loss_utt, loss_sponge, loss_dis, loss_total_h2, y_teacher_clean]`
 - **绑定/预留卡槽 (`reserved_slot_id`)**：`[SLOT-H2: original_single | clean_proj_2A | grl_adv_2B]`

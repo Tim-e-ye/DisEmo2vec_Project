@@ -73,6 +73,7 @@ def h2_clean_proj_2A(
     num_clusters: int = 500,
     use_teacher_clean_projection: bool = True,
     use_max_entropy_uniform_kl: bool = True,
+    lambda_dis: float = 0.0045,
     **kwargs: Any,
 ) -> Dict[str, Any]:
     """
@@ -130,12 +131,13 @@ def h2_clean_proj_2A(
             l_max_ent = torch.zeros_like(l_ortho)
 
         l_dis = l_ortho + l_max_ent
-        l_total_h2 = l_utt + 0.5 * l_sponge + 0.1 * l_dis
+        l_total_h2 = l_utt + 0.5 * l_sponge + float(lambda_dis) * l_dis
 
         return {
             "slot": "H2",
             "disentangle_type": "clean_proj_2A",
             "status": "[ACTIVE_TRIAL]",
+            "lambda_dis": float(lambda_dis),
             "loss_utt": l_utt,
             "loss_sponge": l_sponge,
             "loss_dis": l_dis,
@@ -188,10 +190,11 @@ def h2_clean_proj_2A(
         "slot": "H2",
         "disentangle_type": "clean_proj_2A",
         "status": "[ACTIVE_TRIAL]",
+        "lambda_dis": float(lambda_dis),
         "loss_utt": l_utt_val,
         "loss_sponge": l_sponge_val,
         "loss_dis": l_dis_val,
-        "loss_total_h2": l_utt_val + 0.5 * l_sponge_val + 0.1 * l_dis_val,
+        "loss_total_h2": l_utt_val + 0.5 * l_sponge_val + float(lambda_dis) * l_dis_val,
         "y_teacher_clean": y_clean,
         "uses_external_human_labels": False,
         "downstream_extra_params": 0,
@@ -205,13 +208,16 @@ def h2_grl_adversarial_2B(
     y_teacher_sal: Any,
     p_hubert_target: Optional[Any] = None,
     grl_alpha: float = 0.5,
+    lambda_dis: float = 0.0045,
     **kwargs: Any,
 ) -> Dict[str, Any]:
     """[候选锤头 2B]：梯度反转层（GRL）+ 残差子空间剥离。"""
-    res = h2_clean_proj_2A(z_emo, z_cont, y_teacher_sal, p_hubert_target, **kwargs)
+    res = h2_clean_proj_2A(
+        z_emo, z_cont, y_teacher_sal, p_hubert_target, lambda_dis=lambda_dis, **kwargs
+    )
     res["disentangle_type"] = "grl_adv_2B"
     res["loss_dis"] = res["loss_dis"] * grl_alpha
-    res["loss_total_h2"] = res["loss_utt"] + 0.5 * res["loss_sponge"] + 0.1 * res["loss_dis"]
+    res["loss_total_h2"] = res["loss_utt"] + 0.5 * res["loss_sponge"] + float(lambda_dis) * res["loss_dis"]
     return res
 
 
@@ -253,6 +259,7 @@ class HammerSlotH2_Disentangler(BaseModule):
         num_phoneme_clusters: int = 500,
         use_teacher_clean_projection: bool = True,
         use_max_entropy_uniform_kl: bool = True,
+        lambda_dis: float = 0.0045,
     ) -> None:
         super().__init__()
         self.slot_id = "H2"
@@ -264,6 +271,7 @@ class HammerSlotH2_Disentangler(BaseModule):
         self.num_phoneme_clusters = int(num_phoneme_clusters)
         self.use_teacher_clean_projection = bool(use_teacher_clean_projection)
         self.use_max_entropy_uniform_kl = bool(use_max_entropy_uniform_kl)
+        self.lambda_dis = float(lambda_dis)
 
         if HAS_TORCH:
             self.sponge_head_wc = nn.Linear(self.embed_dim, self.num_phoneme_clusters)
@@ -317,6 +325,7 @@ class HammerSlotH2_Disentangler(BaseModule):
                 num_clusters=self.num_phoneme_clusters,
                 use_teacher_clean_projection=self.use_teacher_clean_projection,
                 use_max_entropy_uniform_kl=self.use_max_entropy_uniform_kl,
+                lambda_dis=self.lambda_dis,
             )
         elif mode == "grl_adv_2B":
             meta = h2_grl_adversarial_2B(
@@ -329,6 +338,7 @@ class HammerSlotH2_Disentangler(BaseModule):
                 num_clusters=self.num_phoneme_clusters,
                 use_teacher_clean_projection=self.use_teacher_clean_projection,
                 use_max_entropy_uniform_kl=self.use_max_entropy_uniform_kl,
+                lambda_dis=self.lambda_dis,
             )
         elif mode in H2_CANDIDATE_FUNCTIONS:
             meta = H2_CANDIDATE_FUNCTIONS[mode](
@@ -339,6 +349,7 @@ class HammerSlotH2_Disentangler(BaseModule):
                 sponge_head_wc=self.sponge_head_wc,
                 sponge_weight_matrix=self.sponge_w_np,
                 num_clusters=self.num_phoneme_clusters,
+                lambda_dis=self.lambda_dis,
             )
         else:
             raise ValueError(f"[H2 卡槽] 未知的 disentangle_type='{mode}'，可选值: {list(H2_CANDIDATE_FUNCTIONS)}")

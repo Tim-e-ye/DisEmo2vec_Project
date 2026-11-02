@@ -1,5 +1,7 @@
 # 8-Metric Wind-Tunnel Evaluation Report — `Anchor-1: Official emotion2vec (262h Baseline)`
 
+- **Checkpoint Verification**: `SMOKE_PIPELINE_TEST`
+- **Checkpoint Path**: `NONE (SMOKE_PIPELINE_TEST)`
 - **Model Tag**: `anchor1_official_262h`
 - **Backbone Frozen**: `True`
 - **Linear Probe Parameters**: `197,892` (`<= 0.20M` verified: `True`)
