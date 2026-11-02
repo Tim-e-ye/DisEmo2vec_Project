@@ -343,19 +343,36 @@ def main() -> int:
     parser.add_argument(
         "--steps", type=int, default=100, help="Number of smoke steps per combo"
     )
+    parser.add_argument(
+        "--view_type", type=str, default="", help="Optional single H1 view_type to smoke-test"
+    )
+    parser.add_argument(
+        "--disentangle_type", type=str, default="", help="Optional single H2 disentangle_type to smoke-test"
+    )
+    parser.add_argument(
+        "--pooling_type", type=str, default="", help="Optional single H3 pooling_type to smoke-test"
+    )
     args = parser.parse_args()
 
-    combos = [
-        ("original_none", "original_single", "original_mean"),
-        ("original_none", "original_single", "salience_3A"),
-        ("original_none", "original_single", "attn_rollout_3B"),
-        ("original_none", "clean_proj_2A", "salience_3A"),
-        ("original_none", "grl_adv_2B", "salience_3A"),
-        ("vtlp_1A", "clean_proj_2A", "salience_3A"),
-        ("channel_drop_1B", "clean_proj_2A", "salience_3A"),
-        ("offline_wav_1C", "clean_proj_2A", "salience_3A"),
-        ("vtlp_1A", "grl_adv_2B", "attn_rollout_3B"),
-    ]
+    if args.view_type or args.disentangle_type or args.pooling_type:
+        v_t = args.view_type or "original_none"
+        d_t = args.disentangle_type or "original_single"
+        p_t = args.pooling_type or "original_mean"
+        combos = [("original_none", "original_single", "original_mean")]
+        if (v_t, d_t, p_t) != combos[0]:
+            combos.append((v_t, d_t, p_t))
+    else:
+        combos = [
+            ("original_none", "original_single", "original_mean"),
+            ("original_none", "original_single", "salience_3A"),
+            ("original_none", "original_single", "attn_rollout_3B"),
+            ("original_none", "clean_proj_2A", "salience_3A"),
+            ("original_none", "grl_adv_2B", "salience_3A"),
+            ("vtlp_1A", "clean_proj_2A", "salience_3A"),
+            ("channel_drop_1B", "clean_proj_2A", "salience_3A"),
+            ("offline_wav_1C", "clean_proj_2A", "salience_3A"),
+            ("vtlp_1A", "grl_adv_2B", "attn_rollout_3B"),
+        ]
 
     results: List[Dict[str, Any]] = []
     for v_type, d_type, p_type in combos:

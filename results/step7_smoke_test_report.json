@@ -29,7 +29,7 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 4.349,
+        "ms_per_step": 3.681,
         "overhead_vs_baseline_pct": 0.0,
         "passed": true
       },
@@ -61,8 +61,8 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 10.073,
-        "overhead_vs_baseline_pct": 131.62,
+        "ms_per_step": 8.644,
+        "overhead_vs_baseline_pct": 134.83,
         "passed": true
       },
       "overall_passed": true
@@ -93,8 +93,8 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 4.409,
-        "overhead_vs_baseline_pct": 1.38,
+        "ms_per_step": 3.749,
+        "overhead_vs_baseline_pct": 1.85,
         "passed": true
       },
       "overall_passed": true
@@ -125,8 +125,8 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 43.206,
-        "overhead_vs_baseline_pct": 893.47,
+        "ms_per_step": 12.107,
+        "overhead_vs_baseline_pct": 228.91,
         "passed": true
       },
       "overall_passed": true
@@ -157,8 +157,8 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 44.556,
-        "overhead_vs_baseline_pct": 924.51,
+        "ms_per_step": 25.921,
+        "overhead_vs_baseline_pct": 604.18,
         "passed": true
       },
       "overall_passed": true
@@ -189,8 +189,8 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 80.526,
-        "overhead_vs_baseline_pct": 1751.6,
+        "ms_per_step": 34.246,
+        "overhead_vs_baseline_pct": 830.35,
         "passed": true
       },
       "overall_passed": true
@@ -221,8 +221,8 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 63.128,
-        "overhead_vs_baseline_pct": 1351.55,
+        "ms_per_step": 30.092,
+        "overhead_vs_baseline_pct": 717.5,
         "passed": true
       },
       "overall_passed": true
@@ -253,8 +253,8 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 67.849,
-        "overhead_vs_baseline_pct": 1460.11,
+        "ms_per_step": 26.574,
+        "overhead_vs_baseline_pct": 621.92,
         "passed": true
       },
       "overall_passed": true
@@ -285,8 +285,8 @@
         "passed": true
       },
       "gate4_throughput": {
-        "ms_per_step": 87.903,
-        "overhead_vs_baseline_pct": 1921.22,
+        "ms_per_step": 31.242,
+        "overhead_vs_baseline_pct": 748.74,
         "passed": true
       },
       "overall_passed": true

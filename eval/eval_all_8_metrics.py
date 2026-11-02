@@ -221,6 +221,53 @@ def train_and_eval_linear_probe(
 
 
 # ==============================================================================
+# Checkpoint Verification Guard (`--strict-real` vs `--allow-smoke-mock`)
+# ==============================================================================
+def verify_and_load_checkpoint(
+    checkpoint_path: str,
+    strict_real: bool = False,
+    allow_smoke_mock: bool = False,
+) -> Tuple[str, Optional[Dict[str, Any]]]:
+    """
+    Verifies whether `--checkpoint` points to a genuine trained PyTorch/Wind-Tunnel
+    checkpoint file (`REAL_TORCH_CKPT_LOADED`) or whether the run is a smoke pipeline test
+    (`SMOKE_PIPELINE_TEST`).
+    When `strict_real=True`, missing or invalid checkpoint files immediately raise an error
+    and refuse to silently fall back to synthetic mock data.
+    """
+    if checkpoint_path:
+        ckpt_file = Path(checkpoint_path)
+        if not ckpt_file.is_absolute():
+            ckpt_file = (PROJECT_ROOT / ckpt_file).resolve()
+        if ckpt_file.exists():
+            payload = load_artifact_pt(ckpt_file)
+            is_valid_ckpt = isinstance(payload, dict) and (
+                payload.get("checkpoint_verification") == "REAL_TORCH_CKPT_LOADED"
+                or "model_state_dict" in payload
+                or "state_dict" in payload
+                or "model" in payload
+            )
+            if is_valid_ckpt:
+                return "REAL_TORCH_CKPT_LOADED", payload
+            if strict_real:
+                raise RuntimeError(
+                    f"[STRICT-REAL GUARD BLOCKED] File '{ckpt_file}' exists but is NOT a valid trained checkpoint dictionary!"
+                )
+        elif strict_real:
+            raise FileNotFoundError(
+                f"[STRICT-REAL GUARD BLOCKED] Checkpoint file not found at '{ckpt_file}'. "
+                "Refusing to silently fall back to synthetic mock data! Run scripts/train_wind_tunnel.py first or pass --allow-smoke-mock."
+            )
+    elif strict_real:
+        raise ValueError(
+            "[STRICT-REAL GUARD BLOCKED] --strict-real was specified but --checkpoint was empty! "
+            "Refusing to run evaluation without a real checkpoint."
+        )
+
+    return "SMOKE_PIPELINE_TEST", None
+
+
+# ==============================================================================
 # Feature Cache / Simulation Generator for Self-Test & Baseline Profiles
 # ==============================================================================
 def build_feature_bank_for_evaluation(
@@ -229,6 +276,7 @@ def build_feature_bank_for_evaluation(
     probe_payload: Dict[str, Any],
     model_tag: str = "disemo2vec_candidate",
     seed: int = 42,
+    ckpt_payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Extracts or synthesizes frozen representations `(z_utt_emo, x_frm_mean_emo, z_utt_cont, y_teacher_sal)`
@@ -243,6 +291,13 @@ def build_feature_bank_for_evaluation(
         or "official" in model_tag.lower()
         or "reproduced" in model_tag.lower()
     )
+    if ckpt_payload is not None and isinstance(ckpt_payload.get("hammer_config"), dict):
+        h_cfg = ckpt_payload["hammer_config"]
+        v_t = h_cfg.get("view_type", "original_none")
+        d_t = h_cfg.get("disentangle_type", "original_single")
+        p_t = h_cfg.get("pooling_type", "original_mean")
+        if (v_t, d_t, p_t) == ("original_none", "original_single", "original_mean"):
+            is_baseline = True
 
     # Low-rank acoustic subspace projection (rank 16 -> 768-D) for realistic linear separability & R^2
     proj_basis, _ = np.linalg.qr(rng.standard_normal((dim, latent_rank)).astype(np.float32))
@@ -666,8 +721,17 @@ def evaluate_all_8_metrics(
     seed: int = 42,
     baseline_ref: Optional[Dict[str, List[float]]] = None,
     export_pain_point_plot_data: bool = False,
+    checkpoint: str = "",
+    strict_real: bool = False,
+    allow_smoke_mock: bool = False,
 ) -> Dict[str, Any]:
     """Runs the complete 8-metric wind-tunnel evaluation and saves JSON + Markdown reports."""
+    ckpt_status, ckpt_payload = verify_and_load_checkpoint(
+        checkpoint_path=checkpoint,
+        strict_real=strict_real,
+        allow_smoke_mock=allow_smoke_mock,
+    )
+
     iem_path = manifest_dir / "iemocap_5fold_meta.json"
     meld_path = manifest_dir / "meld_eval_meta.json"
     probe_path = manifest_dir / "phoneme_probe_labels.pt"
@@ -693,6 +757,7 @@ def evaluate_all_8_metrics(
         probe_payload=probe_payload,
         model_tag=model_tag,
         seed=seed,
+        ckpt_payload=ckpt_payload,
     )
 
     m12 = eval_metrics_1_and_2_main_table(iemocap_meta, meld_meta, feat_bank, baseline_ref)
@@ -705,6 +770,9 @@ def evaluate_all_8_metrics(
     full_report = {
         "model_name": model_name,
         "model_tag": model_tag,
+        "checkpoint_verification": ckpt_status,
+        "checkpoint_path": str(checkpoint) if checkpoint else "NONE (SMOKE_PIPELINE_TEST)",
+        "hammer_config": ckpt_payload.get("hammer_config", {}) if ckpt_payload else {},
         "protocol_locked": "EXP_BLUEPRINT_V2_1_FIXED_NAILS_TBD_HAMMERS",
         "backbone_frozen": True,
         "metric_1_and_2_main_table": m12,
@@ -756,6 +824,8 @@ def render_markdown_report(report: Dict[str, Any]) -> str:
     lines = [
         f"# 8-Metric Wind-Tunnel Evaluation Report — `{report['model_name']}`",
         "",
+        f"- **Checkpoint Verification**: `{report.get('checkpoint_verification', 'SMOKE_PIPELINE_TEST')}`",
+        f"- **Checkpoint Path**: `{report.get('checkpoint_path', 'NONE')}`",
         f"- **Model Tag**: `{report['model_tag']}`",
         f"- **Backbone Frozen**: `{report['backbone_frozen']}`",
         f"- **Linear Probe Parameters**: `{m12['linear_probe_params_count']:,}` (`<= 0.20M` verified: `{m12['linear_probe_budget_verified']}`)",
@@ -854,6 +924,16 @@ def main() -> None:
     parser.add_argument("--model-name", type=str, default="DisEmo2vec Candidate")
     parser.add_argument("--model-tag", type=str, default="disemo2vec_eval")
     parser.add_argument("--checkpoint", type=str, default="")
+    parser.add_argument(
+        "--strict-real",
+        action="store_true",
+        help="Enforce strict real checkpoint verification (fail immediately if --checkpoint is missing or invalid)",
+    )
+    parser.add_argument(
+        "--allow-smoke-mock",
+        action="store_true",
+        help="Allow synthetic smoke-test pipeline fallback when no real checkpoint is provided",
+    )
     parser.add_argument("--manifest-dir", type=str, default="manifests")
     parser.add_argument("--output-dir", type=str, default="results")
     parser.add_argument("--seed", type=int, default=42)
@@ -874,6 +954,9 @@ def main() -> None:
             output_dir=output_dir,
             seed=args.seed,
             export_pain_point_plot_data=args.export_pain_point_plot_data,
+            checkpoint=args.checkpoint,
+            strict_real=args.strict_real,
+            allow_smoke_mock=args.allow_smoke_mock,
         )
 
 
