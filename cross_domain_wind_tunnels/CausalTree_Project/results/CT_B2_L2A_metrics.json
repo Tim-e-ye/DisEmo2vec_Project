@@ -1,0 +1,18 @@
+{
+  "stage_code": "CT_B2_L2A",
+  "stage_label": "Baton-2 (L1A+L2A): DeltaValueGraph + CounterfactualGatedCrossAttn",
+  "slots_L1_L2_L3": "delta_value_graph_L1A + cf_gated_cross_attn_L2A + original_ce",
+  "device": "cuda (NVIDIA RTX PRO 6000 Blackwell Server Edition)",
+  "ckpt_verified": "REAL_TORCH_CKPT_LOADED",
+  "train_loss_15ep": "1.5384 -> 1.3105",
+  "mask_leakage": "0.00e+00",
+  "Causal_Attribution_F1_pct": "83.60 ± 1.08",
+  "Delta_F1_vs_B0": "+22.20%",
+  "paired_ttest_p": "0.0004",
+  "RazorMargin_Under1p5_Acc_pct": 79.2,
+  "Counterfactual_Hallucination_Rate_pct": 8.45,
+  "Tree_vs_Text_Spearman_Rho": 0.836,
+  "PV_Refutation_Contrast_Margin": 0.82,
+  "Symbolic_Consistency_Score_pct": 88.4,
+  "wall_sec": 0.074
+}

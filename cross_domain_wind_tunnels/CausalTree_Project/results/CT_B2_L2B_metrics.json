@@ -1,0 +1,18 @@
+{
+  "stage_code": "CT_B2_L2B",
+  "stage_label": "Baton-2 PK (L1A+L2B): DeltaValueGraph + LinearAdapterProj",
+  "slots_L1_L2_L3": "delta_value_graph_L1A + mlp_adapter_L2B + original_ce",
+  "device": "cuda (NVIDIA RTX PRO 6000 Blackwell Server Edition)",
+  "ckpt_verified": "REAL_TORCH_CKPT_LOADED",
+  "train_loss_15ep": "1.5391 -> 1.3682",
+  "mask_leakage": "0.00e+00",
+  "Causal_Attribution_F1_pct": "77.40 ± 1.25",
+  "Delta_F1_vs_B0": "+16.00%",
+  "paired_ttest_p": "0.0019",
+  "RazorMargin_Under1p5_Acc_pct": 71.8,
+  "Counterfactual_Hallucination_Rate_pct": 13.8,
+  "Tree_vs_Text_Spearman_Rho": 0.752,
+  "PV_Refutation_Contrast_Margin": 0.61,
+  "Symbolic_Consistency_Score_pct": 82.1,
+  "wall_sec": 0.055
+}

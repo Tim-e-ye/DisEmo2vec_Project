@@ -1,0 +1,26 @@
+{
+  "domain": "CausalTree_Project",
+  "verified": true,
+  "symbols": [
+    {
+      "id": "SYM-CT-S1-01",
+      "symbol": "MCTSCausalRolloutDataset"
+    },
+    {
+      "id": "SYM-CT-S2-01",
+      "symbol": "CausalTreeWindTunnelModel"
+    },
+    {
+      "id": "SYM-CT-SLOT-L1",
+      "symbol": "HammerSlotL1"
+    },
+    {
+      "id": "SYM-CT-SLOT-L2",
+      "symbol": "HammerSlotL2"
+    },
+    {
+      "id": "SYM-CT-SLOT-L3",
+      "symbol": "compute_slot_l3_loss"
+    }
+  ]
+}

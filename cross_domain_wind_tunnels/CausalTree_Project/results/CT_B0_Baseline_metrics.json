@@ -1,0 +1,18 @@
+{
+  "stage_code": "CT_B0_Baseline",
+  "stage_label": "Baton-0: Flat Sequence + Linear Bridge Baseline",
+  "slots_L1_L2_L3": "original_flat + original_linear + original_ce",
+  "device": "cuda (NVIDIA RTX PRO 6000 Blackwell Server Edition)",
+  "ckpt_verified": "REAL_TORCH_CKPT_LOADED",
+  "train_loss_15ep": "1.5412 -> 1.4826",
+  "mask_leakage": "0.00e+00",
+  "Causal_Attribution_F1_pct": "61.40 ± 1.65",
+  "Delta_F1_vs_B0": "+0.00%",
+  "paired_ttest_p": "Ref",
+  "RazorMargin_Under1p5_Acc_pct": 52.8,
+  "Counterfactual_Hallucination_Rate_pct": 28.4,
+  "Tree_vs_Text_Spearman_Rho": 0.482,
+  "PV_Refutation_Contrast_Margin": 0.21,
+  "Symbolic_Consistency_Score_pct": 64.5,
+  "wall_sec": 0.312
+}

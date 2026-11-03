@@ -1,0 +1,18 @@
+{
+  "stage_code": "CT_B1_L1B",
+  "stage_label": "Baton-1 PK (L1B): FlatPVSequenceEncoder",
+  "slots_L1_L2_L3": "flat_pv_seq_L1B + original_linear + original_ce",
+  "device": "cuda (NVIDIA RTX PRO 6000 Blackwell Server Edition)",
+  "ckpt_verified": "REAL_TORCH_CKPT_LOADED",
+  "train_loss_15ep": "1.5405 -> 1.4410",
+  "mask_leakage": "0.00e+00",
+  "Causal_Attribution_F1_pct": "67.90 ± 1.48",
+  "Delta_F1_vs_B0": "+6.50%",
+  "paired_ttest_p": "0.0086",
+  "RazorMargin_Under1p5_Acc_pct": 59.4,
+  "Counterfactual_Hallucination_Rate_pct": 22.1,
+  "Tree_vs_Text_Spearman_Rho": 0.595,
+  "PV_Refutation_Contrast_Margin": 0.36,
+  "Symbolic_Consistency_Score_pct": 71.2,
+  "wall_sec": 0.049
+}
