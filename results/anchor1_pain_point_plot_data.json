@@ -2,13 +2,13 @@
   "figure1_cross_script_drop": {
     "protocol": "5-Fold Leave-One-Session-Out Speaker-Independent Cross-Script",
     "speaker_leakage_zero_verified": true,
-    "in_domain_impro_to_impro_UA": 85.84,
-    "cross_script_to_impro_UA": 8.69,
-    "script_to_impro_drop_UA": 77.15,
-    "in_domain_script_to_script_UA": 86.37,
-    "cross_impro_to_script_UA": 11.19,
-    "impro_to_script_drop_UA": 75.18,
-    "average_cross_script_drop_UA": 76.17
+    "in_domain_impro_to_impro_UA": 81.01,
+    "cross_script_to_impro_UA": 11.13,
+    "script_to_impro_drop_UA": 69.88,
+    "in_domain_script_to_script_UA": 87.38,
+    "cross_impro_to_script_UA": 10.3,
+    "impro_to_script_drop_UA": 77.08,
+    "average_cross_script_drop_UA": 73.48
   },
   "figure2_duration_dilution_buckets": {
     "buckets": {
@@ -35,7 +35,7 @@
     "medium_UA": 34.99,
     "long_UA": 13.25,
     "long_minus_short_delta_UA": -34.89,
-    "degradation_slope_per_bucket": -17.45
+    "degradation_slope_per_bucket": -17.44
   },
   "table9_dual_degradation": {
     "metric_3_2A_pretrain_utt_only_survival": {
@@ -49,11 +49,11 @@
       "official_table9_utt_only_ref_WA": 62.77,
       "official_table9_frm_only_ref_WA": 71.79,
       "official_table9_concat_ref_WA": 71.6,
-      "measured_single_utt_WA": 59.4,
-      "measured_single_utt_UA": 59.58,
+      "measured_single_utt_WA": 61.4,
+      "measured_single_utt_UA": 61.49,
       "measured_single_frm_WA": 82.4,
-      "measured_concat_utt_frm_WA": 85.6,
-      "delta_concat_vs_frm_WA": 3.2,
+      "measured_concat_utt_frm_WA": 84.8,
+      "delta_concat_vs_frm_WA": 2.4,
       "positive_concat_synergy": true
     }
   }
